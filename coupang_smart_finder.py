@@ -1,9 +1,10 @@
-# coupang_smart_finder.py - 수익 최적화 완전 반영 버전
+# coupang_smart_finder.py - 디버깅 버전
 
 import hmac
 import hashlib
 import requests
 import os
+import json
 from datetime import datetime
 from urllib.parse import quote
 
@@ -12,7 +13,14 @@ ACCESS_KEY = os.environ.get('COUPANG_ACCESS_KEY')
 SECRET_KEY = os.environ.get('COUPANG_SECRET_KEY')
 DOMAIN = "https://api-gateway.coupang.com"
 
-# 카테고리별 평균 수수료율 (%)
+print("🔧 디버깅 모드 시작")
+print(f"ACCESS_KEY 존재: {'✅' if ACCESS_KEY else '❌'}")
+print(f"SECRET_KEY 존재: {'✅' if SECRET_KEY else '❌'}")
+print(f"ACCESS_KEY 길이: {len(ACCESS_KEY) if ACCESS_KEY else 0}")
+print(f"SECRET_KEY 길이: {len(SECRET_KEY) if SECRET_KEY else 0}")
+print()
+
+# 카테고리별 평균 수수료율
 CATEGORY_COMMISSION = {
     '패션의류': 6.0,
     '패션잡화': 6.0,
@@ -27,38 +35,6 @@ CATEGORY_COMMISSION = {
     '스포츠': 4.0
 }
 
-# 💡 수익 최적화 1: 시즌별 키워드 자동 변경
-def get_seasonal_keywords():
-    """현재 월에 맞는 시즌 키워드 반환"""
-    month = datetime.now().month
-    
-    seasonal_map = {
-        1: ['겨울패딩', '목도리', '핫팩'],  # 1월
-        2: ['발렌타인초콜릿', '화이트데이선물', '졸업선물'],  # 2월
-        3: ['봄자켓', '신학기가방', '화이트데이'],  # 3월
-        4: ['봄원피스', '봄신발', '야외용품'],  # 4월
-        5: ['어버이날선물', '카네이션', '가정의달선물'],  # 5월
-        6: ['여름원피스', '선풍기', '썬크림'],  # 6월
-        7: ['여름휴가용품', '수영복', '캠핑용품'],  # 7월
-        8: ['여름세일', '휴가용품', '선글라스'],  # 8월
-        9: ['가을자켓', '추석선물', '등산용품'],  # 9월
-        10: ['가을코트', '핼러윈', '단풍여행용품'],  # 10월
-        11: ['겨울준비', '블랙프라이데이', '난방용품'],  # 11월
-        12: ['크리스마스선물', '연말선물', '겨울패딩']  # 12월
-    }
-    
-    base_keywords = ['여성의류', '화장품세트', '건강식품']  # 기본 고수수료 카테고리
-    seasonal = seasonal_map.get(month, [])
-    
-    return base_keywords + seasonal
-
-# 💡 수익 최적화 2: 가격대별 검색 (1-3만원대 집중)
-PRICE_RANGES = [
-    {'min': 10000, 'max': 20000, 'name': '1만원대'},
-    {'min': 20000, 'max': 30000, 'name': '2만원대'},
-    {'min': 30000, 'max': 50000, 'name': '3-5만원대'}
-]
-
 # ==================== HMAC 서명 생성 ====================
 def generate_hmac(method, path, secret_key):
     """쿠팡 API HMAC 서명 생성"""
@@ -69,20 +45,30 @@ def generate_hmac(method, path, secret_key):
         message.encode('utf-8'),
         hashlib.sha256
     ).hexdigest()
-    return f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, signed-date={datetime_str}, signature={signature}"
+    
+    auth_header = f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, signed-date={datetime_str}, signature={signature}"
+    
+    print(f"🔐 서명 생성:")
+    print(f"   DateTime: {datetime_str}")
+    print(f"   Message: {message[:50]}...")
+    print(f"   Signature: {signature[:20]}...")
+    print()
+    
+    return auth_header
 
 # ==================== 쿠팡 제품 검색 ====================
-def search_products(keyword, price_min=None, price_max=None, limit=10):
-    """쿠팡 제품 검색 - 가격 범위 지정 가능"""
+def search_products(keyword, limit=10):
+    """쿠팡 제품 검색 - 디버깅 강화"""
+    print(f"🔍 검색 시작: {keyword}")
+    
+    if limit > 10:
+        limit = 10
+    
     path = f"/v2/providers/affiliate_open_api/apis/openapi/products/search?keyword={quote(keyword)}&limit={limit}"
-    
-    # 가격 범위 추가
-    if price_min:
-        path += f"&minPrice={price_min}"
-    if price_max:
-        path += f"&maxPrice={price_max}"
-    
     url = DOMAIN + path
+    
+    print(f"   URL: {url}")
+    
     authorization = generate_hmac("GET", path, SECRET_KEY)
     
     headers = {
@@ -91,14 +77,46 @@ def search_products(keyword, price_min=None, price_max=None, limit=10):
     }
     
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        print(f"   요청 전송 중...")
+        response = requests.get(url, headers=headers, timeout=15)
+        
+        print(f"   ✅ 응답 받음: {response.status_code}")
+        print(f"   응답 크기: {len(response.text)} bytes")
+        
         if response.status_code == 200:
-            return response.json()
+            data = response.json()
+            print(f"   rCode: {data.get('rCode')}")
+            print(f"   rMessage: {data.get('rMessage')}")
+            
+            if data.get('data'):
+                products = data.get('data', {}).get('productData', [])
+                print(f"   제품 개수: {len(products)}")
+                
+                if products:
+                    print(f"   첫 번째 제품: {products[0].get('productName', 'N/A')[:40]}...")
+            else:
+                print(f"   ⚠️ data 필드 없음")
+            
+            print()
+            return data
         else:
-            print(f"❌ API 오류 [{keyword}]: {response.status_code} - {response.text}")
+            print(f"   ❌ API 오류 코드: {response.status_code}")
+            print(f"   오류 내용: {response.text[:300]}")
+            print()
             return None
+            
+    except requests.exceptions.Timeout:
+        print(f"   ❌ 타임아웃 (15초 초과)")
+        print()
+        return None
+    except requests.exceptions.ConnectionError:
+        print(f"   ❌ 연결 오류")
+        print()
+        return None
     except Exception as e:
-        print(f"❌ 요청 실패 [{keyword}]: {str(e)}")
+        print(f"   ❌ 예외 발생: {type(e).__name__}")
+        print(f"   메시지: {str(e)}")
+        print()
         return None
 
 # ==================== 수수료율 예측 ====================
@@ -108,32 +126,34 @@ def estimate_commission_rate(product):
     price = product.get('productPrice', 0)
     is_rocket = product.get('isRocket', False)
     
-    # 기본 카테고리 수수료율
-    commission_rate = 3.5  # 기본값
+    commission_rate = 3.5
     for key, rate in CATEGORY_COMMISSION.items():
         if key in category_name:
             commission_rate = rate
             break
     
-    # 💡 가격대 보정: 저가 제품 우대
     if price <= 20000:
         commission_rate += 0.5
     elif price >= 100000:
         commission_rate -= 0.5
     
-    # 💡 로켓배송 보정: 구매전환율 높음
     if is_rocket:
         commission_rate += 0.3
     
     return round(commission_rate, 1)
 
-# ==================== 제품 분석 및 정렬 ====================
+# ==================== 제품 분석 ====================
 def analyze_products(products):
     """제품 분석 후 수익성 기준으로 정렬"""
     analyzed = []
     
     for product in products:
         price = product.get('productPrice', 0)
+        
+        # 가격 필터링 (1만원~10만원)
+        if price < 10000 or price > 100000:
+            continue
+        
         commission_rate = estimate_commission_rate(product)
         commission_amount = int(price * (commission_rate / 100))
         is_rocket = product.get('isRocket', False)
@@ -144,15 +164,13 @@ def analyze_products(products):
             'commission_rate': commission_rate,
             'commission_amount': commission_amount,
             'is_rocket': is_rocket,
-            # 💡 우선순위 점수: 로켓배송 + 수수료율 + 저가 보너스
             'priority_score': (
-                commission_rate * 10 +  # 수수료율 가중치
-                (20 if is_rocket else 0) +  # 로켓배송 보너스
-                (10 if 10000 <= price <= 30000 else 0)  # 저가 보너스
+                commission_rate * 10 +
+                (20 if is_rocket else 0) +
+                (10 if 10000 <= price <= 30000 else 0)
             )
         })
     
-    # 💡 수익 최적화 3: 우선순위 점수로 정렬
     analyzed.sort(key=lambda x: x['priority_score'], reverse=True)
     return analyzed
 
@@ -162,64 +180,55 @@ def main():
     print("🎯 쿠팡 파트너스 수익 최적화 제품 검색 시작")
     print(f"📅 실행 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 70)
+    print()
     
     if not ACCESS_KEY or not SECRET_KEY:
-        print("❌ API 키가 설정되지 않았습니다.")
+        print("❌ 치명적 오류: API 키가 설정되지 않았습니다!")
+        print("GitHub Secrets 설정을 확인하세요.")
         return
     
-    # 💡 시즌별 키워드 자동 선택
-    keywords = get_seasonal_keywords()
-    print(f"\n🔍 이번 달 검색 키워드: {', '.join(keywords)}\n")
+    # 간단한 키워드로 테스트
+    test_keywords = ['여성의류', '화장품세트', '건강식품']
+    
+    print(f"🔍 테스트 키워드: {', '.join(test_keywords)}\n")
     
     all_high_commission = []
-    results_by_keyword = {}
     
-    for keyword in keywords:
+    for keyword in test_keywords:
         print(f"\n{'=' * 70}")
         print(f"📌 키워드: {keyword}")
         print(f"{'=' * 70}\n")
         
-        keyword_products = []
+        data = search_products(keyword, limit=10)
         
-        # 💡 가격대별 검색 (1-3만원대 집중)
-        for price_range in PRICE_RANGES:
-            print(f"💰 {price_range['name']} 검색 중...")
-            
-            data = search_products(
-                keyword,
-                price_min=price_range['min'],
-                price_max=price_range['max'],
-                limit=10
-            )
-            
-            if not data or data.get('rCode') != '0':
-                continue
-            
-            products = data.get('data', {}).get('productData', [])
-            if products:
-                analyzed = analyze_products(products)
-                keyword_products.extend(analyzed)
-        
-        if not keyword_products:
-            print(f"⚠️ 제품을 찾지 못했습니다.\n")
+        if not data:
+            print(f"⚠️ API 호출 실패 - 다음 키워드로 이동\n")
             continue
         
-        # 중복 제거 (productId 기준)
-        seen_ids = set()
-        unique_products = []
-        for item in keyword_products:
-            prod_id = item['product'].get('productId')
-            if prod_id not in seen_ids:
-                seen_ids.add(prod_id)
-                unique_products.append(item)
+        if data.get('rCode') != '0':
+            print(f"⚠️ API 응답 오류: {data.get('rMessage')}\n")
+            continue
         
-        # 우선순위 점수 기준 재정렬
-        unique_products.sort(key=lambda x: x['priority_score'], reverse=True)
+        products = data.get('data', {}).get('productData', [])
+        
+        if not products:
+            print(f"⚠️ 검색 결과 없음\n")
+            continue
+        
+        print(f"✅ 원본 제품 개수: {len(products)}")
+        
+        analyzed = analyze_products(products)
+        
+        print(f"✅ 필터링 후 제품 개수: {len(analyzed)}")
+        
+        if not analyzed:
+            print(f"⚠️ 가격 필터링 후 제품 없음 (1만원~10만원 범위)\n")
+            continue
         
         # TOP 3 출력
-        top_products = unique_products[:3]
-        results_by_keyword[keyword] = top_products
+        top_products = analyzed[:3]
         
+        print(f"\n📋 TOP 3 제품:\n")
         for idx, item in enumerate(top_products, 1):
             product = item['product']
             print(f"{idx}. {product.get('productName', 'N/A')}")
@@ -232,8 +241,7 @@ def main():
             print(f"   ⭐ 우선순위 점수: {item['priority_score']:.1f}")
             print(f"   🔗 {product.get('productUrl', 'N/A')}\n")
         
-        # 고수수료 제품 수집 (5% 이상)
-        high_commission = [item for item in unique_products if item['commission_rate'] >= 5.0]
+        high_commission = [item for item in analyzed if item['commission_rate'] >= 5.0]
         all_high_commission.extend(high_commission)
     
     # ==================== 전체 요약 ====================
@@ -253,23 +261,16 @@ def main():
         print(f"   - 로켓배송: {'O' if best['is_rocket'] else 'X'}")
         print(f"   - 우선순위 점수: {best['priority_score']:.1f}")
         
-        # 💡 카테고리별 통계
-        print(f"\n📂 카테고리별 분포:")
-        category_count = {}
-        for item in all_high_commission:
-            cat = item['product'].get('categoryName', '기타')
-            category_count[cat] = category_count.get(cat, 0) + 1
-        
-        for cat, count in sorted(category_count.items(), key=lambda x: x[1], reverse=True)[:5]:
-            print(f"   - {cat}: {count}개")
-        
-        # 💡 로켓배송 비율
         rocket_count = sum(1 for item in all_high_commission if item['is_rocket'])
         rocket_ratio = (rocket_count / len(all_high_commission)) * 100
         print(f"\n🚀 로켓배송 비율: {rocket_ratio:.1f}% ({rocket_count}/{len(all_high_commission)})")
         
     else:
         print("⚠️ 예상 고수수료 제품을 찾지 못했습니다.")
+        print("\n가능한 원인:")
+        print("1. 모든 키워드에서 API 호출 실패")
+        print("2. 가격 필터링(1만원~10만원)에서 모두 걸러짐")
+        print("3. 쿠팡 API 일시적 오류")
     
     print("\n" + "=" * 70)
     print("✅ 검색 완료!")
