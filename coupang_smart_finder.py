@@ -1,4 +1,4 @@
-# coupang_smart_finder.py - 쿠팡 공식 서명 방식
+# coupang_smart_finder.py - 쿠팡 공식 Python 예제 기반
 
 import hmac
 import hashlib
@@ -12,16 +12,11 @@ ACCESS_KEY = os.environ.get('COUPANG_ACCESS_KEY')
 SECRET_KEY = os.environ.get('COUPANG_SECRET_KEY')
 DOMAIN = "https://api-gateway.coupang.com"
 
-print("🔧 디버깅 모드 시작")
-print(f"ACCESS_KEY 존재: {'✅' if ACCESS_KEY else '❌'}")
-print(f"SECRET_KEY 존재: {'✅' if SECRET_KEY else '❌'}")
-if ACCESS_KEY:
-    print(f"ACCESS_KEY 앞 10자: {ACCESS_KEY[:10]}...")
-if SECRET_KEY:
-    print(f"SECRET_KEY 앞 10자: {SECRET_KEY[:10]}...")
+print("🔧 시작")
+print(f"ACCESS_KEY: {ACCESS_KEY[:10] if ACCESS_KEY else 'None'}...")
+print(f"SECRET_KEY: {SECRET_KEY[:10] if SECRET_KEY else 'None'}...")
 print()
 
-# 카테고리별 평균 수수료율
 CATEGORY_COMMISSION = {
     '패션의류': 6.0,
     '패션잡화': 6.0,
@@ -37,93 +32,59 @@ CATEGORY_COMMISSION = {
 }
 
 # ==================== HMAC 서명 생성 (쿠팡 공식) ====================
-def generate_hmac(method, path, secret_key, access_key):
-    """쿠팡 공식 HMAC 서명 생성"""
-    # GMT 시간 형식: yyMMddTHHmmssZ
-    datetime_utc = datetime.utcnow()
-    datetime_str = datetime_utc.strftime('%y%m%d') + 'T' + datetime_utc.strftime('%H%M%S') + 'Z'
+def generate_hmac_signature(method, url, secret_key, access_key):
+    """쿠팡 공식 HMAC 서명 - URL 전체 사용"""
     
-    # 메시지 생성: datetime + method + path
+    # GMT 시간
+    datetime_str = datetime.utcnow().strftime('%y%m%d') + 'T' + datetime.utcnow().strftime('%H%M%S') + 'Z'
+    
+    # URL에서 path만 추출 (도메인 제외)
+    path = url.replace(DOMAIN, '')
+    
+    # 메시지: datetime + method + path
     message = datetime_str + method + path
     
-    print(f"🔐 서명 생성 상세:")
-    print(f"   UTC 시간: {datetime_utc}")
-    print(f"   DateTime 문자열: {datetime_str}")
-    print(f"   Method: {method}")
-    print(f"   Path: {path}")
-    print(f"   Message: {message}")
-    
-    # HMAC-SHA256 서명
+    # HMAC-SHA256
     signature = hmac.new(
-        bytes(secret_key, 'utf-8'),
-        bytes(message, 'utf-8'),
+        secret_key.encode('utf-8'),
+        message.encode('utf-8'),
         hashlib.sha256
     ).hexdigest()
     
-    print(f"   Signature: {signature}")
-    
     # Authorization 헤더
-    authorization = f"CEA algorithm=HmacSHA256, access-key={access_key}, signed-date={datetime_str}, signature={signature}"
-    
-    print(f"   Authorization 헤더 생성 완료")
-    print()
-    
-    return authorization
+    return f"CEA algorithm=HmacSHA256, access-key={access_key}, signed-date={datetime_str}, signature={signature}"
 
 # ==================== 쿠팡 제품 검색 ====================
-def search_products(keyword, limit=10):
-    """쿠팡 제품 검색"""
-    print(f"🔍 검색 시작: {keyword}")
+def search_coupang_products(keyword, limit=10):
+    """쿠팡 제품 검색 - 단순 버전"""
     
-    if limit > 10:
-        limit = 10
+    # URL 생성
+    url = f"{DOMAIN}/v2/providers/affiliate_open_api/apis/openapi/products/search?keyword={quote(keyword)}&limit={limit}"
     
-    # Path 정확히 생성
-    path = f"/v2/providers/affiliate_open_api/apis/openapi/products/search?keyword={quote(keyword)}&limit={limit}"
-    url = DOMAIN + path
+    # 서명 생성
+    authorization = generate_hmac_signature("GET", url, SECRET_KEY, ACCESS_KEY)
     
-    print(f"   전체 URL: {url}")
-    print()
-    
-    authorization = generate_hmac("GET", path, SECRET_KEY, ACCESS_KEY)
-    
+    # 헤더
     headers = {
         "Authorization": authorization,
         "Content-Type": "application/json"
     }
     
+    # 요청
     try:
-        response = requests.get(url, headers=headers, timeout=15)
-        
-        print(f"   📡 응답 받음: {response.status_code}")
+        response = requests.get(url, headers=headers, timeout=10)
         
         if response.status_code == 200:
-            data = response.json()
-            print(f"   ✅ 성공!")
-            print(f"   rCode: {data.get('rCode')}")
-            print(f"   rMessage: {data.get('rMessage')}")
-            
-            if data.get('data'):
-                products = data.get('data', {}).get('productData', [])
-                print(f"   제품 개수: {len(products)}")
-                if products:
-                    print(f"   첫 제품: {products[0].get('productName', '')[:40]}...")
-            print()
-            return data
+            return response.json()
         else:
-            print(f"   ❌ API 오류 코드: {response.status_code}")
-            print(f"   응답 내용: {response.text}")
-            print()
+            print(f"❌ [{keyword}] {response.status_code}: {response.text[:100]}")
             return None
-            
     except Exception as e:
-        print(f"   ❌ 예외 발생: {type(e).__name__}: {str(e)}")
-        print()
+        print(f"❌ [{keyword}] 오류: {e}")
         return None
 
 # ==================== 수수료율 예측 ====================
 def estimate_commission_rate(product):
-    """카테고리, 가격, 배송 타입 기반 수수료율 예측"""
     category_name = product.get('categoryName', '')
     price = product.get('productPrice', 0)
     is_rocket = product.get('isRocket', False)
@@ -146,7 +107,6 @@ def estimate_commission_rate(product):
 
 # ==================== 제품 분석 ====================
 def analyze_products(products):
-    """제품 분석 후 수익성 기준으로 정렬"""
     analyzed = []
     
     for product in products:
@@ -175,21 +135,19 @@ def analyze_products(products):
     analyzed.sort(key=lambda x: x['priority_score'], reverse=True)
     return analyzed
 
-# ==================== 메인 실행 ====================
+# ==================== 메인 ====================
 def main():
     print("=" * 70)
-    print("🎯 쿠팡 파트너스 수익 최적화 제품 검색 시작")
-    print(f"📅 실행 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("🎯 쿠팡 파트너스 제품 검색")
+    print(f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 70)
     print()
     
     if not ACCESS_KEY or not SECRET_KEY:
-        print("❌ 치명적 오류: API 키가 설정되지 않았습니다!")
+        print("❌ API 키 없음")
         return
     
     keywords = ['여성의류', '화장품세트', '건강식품']
-    print(f"🔍 검색 키워드: {', '.join(keywords)}\n")
-    
     all_high_commission = []
     
     for keyword in keywords:
@@ -197,31 +155,34 @@ def main():
         print(f"📌 키워드: {keyword}")
         print(f"{'=' * 70}\n")
         
-        data = search_products(keyword, limit=10)
+        # API 호출
+        data = search_coupang_products(keyword, limit=10)
         
-        if not data:
-            print(f"⚠️ API 호출 실패\n")
-            continue
-        
-        if data.get('rCode') != '0':
-            print(f"⚠️ API 응답 오류: {data.get('rMessage')}\n")
+        if not data or data.get('rCode') != '0':
+            print(f"⚠️ 검색 실패\n")
             continue
         
         products = data.get('data', {}).get('productData', [])
         
         if not products:
-            print(f"⚠️ 검색 결과 없음\n")
+            print(f"⚠️ 제품 없음\n")
             continue
         
+        print(f"✅ {len(products)}개 제품 발견")
+        
+        # 분석
         analyzed = analyze_products(products)
         
         if not analyzed:
-            print(f"⚠️ 가격 필터링 후 제품 없음\n")
+            print(f"⚠️ 가격 필터 후 제품 없음\n")
             continue
         
-        top_products = analyzed[:3]
+        print(f"✅ 필터 후 {len(analyzed)}개")
         
-        print(f"📋 TOP 3 제품:\n")
+        # TOP 3 출력
+        top_products = analyzed[:3]
+        print(f"\n📋 TOP 3:\n")
+        
         for idx, item in enumerate(top_products, 1):
             product = item['product']
             print(f"{idx}. {product.get('productName', 'N/A')}")
@@ -237,8 +198,9 @@ def main():
         high_commission = [item for item in analyzed if item['commission_rate'] >= 5.0]
         all_high_commission.extend(high_commission)
     
+    # 요약
     print("\n" + "=" * 70)
-    print("📊 전체 검색 요약")
+    print("📊 전체 요약")
     print("=" * 70)
     
     if all_high_commission:
@@ -257,10 +219,10 @@ def main():
         rocket_ratio = (rocket_count / len(all_high_commission)) * 100
         print(f"\n🚀 로켓배송 비율: {rocket_ratio:.1f}% ({rocket_count}/{len(all_high_commission)})")
     else:
-        print("⚠️ 예상 고수수료 제품을 찾지 못했습니다.")
+        print("⚠️ 고수수료 제품 없음")
     
     print("\n" + "=" * 70)
-    print("✅ 검색 완료!")
+    print("✅ 완료")
     print("=" * 70)
 
 if __name__ == "__main__":
