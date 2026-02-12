@@ -49,7 +49,37 @@ def search_products(keyword: str, limit: int = 50):
         r = requests.get(url, params=params, headers=headers, timeout=20)
         r.raise_for_status()
         print(f"✅ API 호출 성공 (상태: {r.status_code})")
-        return r.json()
+        
+        response_json = r.json()
+        
+        # === 디버깅 시작 ===
+        print(f"\n{'='*70}")
+        print("🔍 API 응답 디버깅")
+        print('='*70)
+        print(f"📋 응답 최상위 키: {list(response_json.keys())}")
+        
+        if 'data' in response_json:
+            data = response_json['data']
+            print(f"📋 data 타입: {type(data)}")
+            print(f"📋 data 길이: {len(data) if isinstance(data, list) else 'N/A'}")
+            if isinstance(data, list) and len(data) > 0:
+                print(f"📋 첫 번째 항목 키: {list(data[0].keys())}")
+                print(f"📋 첫 번째 항목 내용:")
+                import json
+                print(json.dumps(data[0], indent=2, ensure_ascii=False))
+            else:
+                print(f"⚠️ data가 비어있거나 리스트가 아님: {data}")
+        else:
+            print(f"⚠️ 'data' 키가 없음")
+            print(f"📋 전체 응답:")
+            import json
+            print(json.dumps(response_json, indent=2, ensure_ascii=False))
+        
+        print('='*70)
+        # === 디버깅 끝 ===
+        
+        return response_json
+
     except requests.exceptions.HTTPError as e:
         print(f"❌ HTTP 에러: {e}")
         print(f"응답: {r.text}")
