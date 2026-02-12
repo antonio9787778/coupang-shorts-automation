@@ -1,16 +1,39 @@
-name: test-run
+name: 쿠팡 파트너스 자동화
 
 on:
-  workflow_dispatch:  # 수동 실행 버튼
+  workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'  # 매일 00:00 UTC (= KST 오전 9시)
+    - cron: '0 0 * * *'
 
 jobs:
-  run:
+  test-dummy:
+    name: 1단계 - 더미 데이터 테스트
     runs-on: ubuntu-latest
+    
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - run: python test_coupang_logic.py
+      - name: 더미 데이터 테스트 실행
+        run: python test_coupang_logic.py
+
+  coupang-api:
+    name: 2단계 - 쿠팡 API 실행
+    runs-on: ubuntu-latest
+    needs: test-dummy
+    
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: requests 설치
+        run: pip install requests
+      
+      - name: 쿠팡 고수수료 제품 찾기
+        env:
+          COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
+          COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
+        run: python coupang_finder.py
