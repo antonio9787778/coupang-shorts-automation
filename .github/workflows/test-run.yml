@@ -33,8 +33,57 @@ jobs:
         run: pip install requests
       
       - name: 쿠팡 예상 고수수료 제품 찾기
+        id: coupang_run
         env:
           COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
           COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
-        run: python coupang_smart_finder.py
+        run: |
+          python coupang_smart_finder.py 2>&1 | tee result.txt
+      
+      - name: 텔레그램 알림 전송
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          STATUS="${{ job.status }}"
+          PREV_STATUS="${{ needs.test-dummy.result }}"
+          
+          if [ "$STATUS" = "success" ] && [ "$PREV_STATUS" = "success" ]; then
+            EMOJI="✅"
+            TITLE="쿠팡 파트너스 자동화 성공!"
+          else
+            EMOJI="❌"
+            TITLE="쿠팡 파트너스 자동화 실패"
+          fi
+          
+          TIMESTAMP=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S KST')
+          
+          # 결과 요약 추출
+          if [ -f result.txt ]; then
+            TOTAL=$(grep "✅ 완료" result.txt | grep -oP '\d+(?=개)' | head -1)
+            TOP_RATE=$(grep "예상 수수료율:" result.txt | head -1 | grep -oP '\d+\.\d+(?=%)')
+            TOP_COMMISSION=$(grep "예상 수수료:" result.txt | head -1 | grep -oP '\d+,?\d*(?=원)')
+            TOP_NAME=$(grep "🥇 최고 예상 수수료율 제품:" result.txt -A 1 | tail -1 | xargs)
+            
+            SUMMARY="📊 총 ${TOTAL:-0}개 고수수료 제품 발견
+🥇 최고 수수료율: ${TOP_RATE:-N/A}%
+💵 예상 수수료: ${TOP_COMMISSION:-N/A}원"
+          else
+            SUMMARY="❌ 실행 결과 없음"
+          fi
+          
+          MESSAGE="${EMOJI} *${TITLE}*
 
+📅 ${TIMESTAMP}
+
+${SUMMARY}
+
+🔗 [상세 로그 보기](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+"
+          
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d chat_id="${TELEGRAM_CHAT_ID}" \
+            -d text="${MESSAGE}" \
+            -d parse_mode="Markdown" \
+            -d disable_web_page_preview=true
