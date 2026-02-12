@@ -34,19 +34,77 @@ jobs:
         env:
           COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
           COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
-        run: python coupang_smart_finder.py | tee result.txt
+        run: python coupang_smart_finder.py > result.txt 2>&1
       
-      - name: 텔레그램 알림
+      - name: 결과 정리 및 텔레그램 전송
         if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          TIME=$(date '+%Y-%m-%d %H:%M')
+          cat << 'PYTHON_SCRIPT' > parse_result.py
+          import re
+          import sys
+          from datetime import datetime
           
-          MESSAGE="✅ 쿠팡 자동화 완료
+          try:
+              with open('result.txt', 'r', encoding='utf-8') as f:
+                  content = f.read()
+          except:
+              print("파일 읽기 실패")
+              sys.exit(1)
           
-          📅 ${TIME}
-          📊 결과 확인: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          # 현재 시간
+          now = datetime.now().strftime('%Y-%m-%d %H:%M KST')
           
-          curl -X POST \
-            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d "text=${MESSAGE}"
+          # 카테고리별로 분리
+          categories = re.split(r'={70}\n📌 키워드: ', content)
+          
+          result = f"🎯 *쿠팡 파트너스 고수수료 제품*\n📅 {now}\n\n"
+          
+          for cat in categories[1:]:  # 첫 번째는 헤더라 건너뜀
+              lines = cat.split('\n')
+              keyword = lines[0].strip()
+              
+              result += f"📂 *{keyword}*\n\n"
+              
+              # TOP 3 제품 추출
+              products = re.findall(r'(\d+)\. (.+?)(?:🚀)?\n\s+💰 가격: ([\d,]+)원\n\s+📂 카테고리: (.+?)\n\s+📊 예상 수수료율: ([\d.]+)% \(추정치\)\n\s+💵 예상 수수료: ([\d,]+)원\n\s+🔗 (https?://[^\s]+)', cat, re.DOTALL)
+              
+              for i, prod in enumerate(products[:3], 1):
+                  rank, name, price, category, rate, commission, url = prod
+                  # 제품명 길이 제한
+                  name_short = name[:40] + '...' if len(name) > 40 else name
+                  result += f"*{i}. {name_short}*\n"
+                  result += f"💰 {price}원 | 📊 {rate}% | 💵 {commission}원\n"
+                  result += f"🔗 `{url}`\n\n"
+              
+              if not products:
+                  result += "   ⚠️ 제품 없음\n\n"
+          
+          # 전체 요약
+          total_match = re.search(r'총 (\d+)개 예상 고수수료', content)
+          best_rate_match = re.search(r'예상 수수료율: ([\d.]+)%', content)
+          best_commission_match = re.search(r'예상 수수료: ([\d,]+)원', content)
+          
+          result += "━━━━━━━━━━━━━━━━\n"
+          if total_match:
+              result += f"✅ 총 {total_match.group(1)}개 제품 발견\n"
+          if best_rate_match and best_commission_match:
+              result += f"🥇 최고: {best_rate_match.group(1)}% ({best_commission_match.group(1)}원)"
+          
+          print(result)
+          PYTHON_SCRIPT
+          
+          python3 parse_result.py > telegram_message.txt
+          
+          # 텔레그램 전송
+          MESSAGE=$(cat telegram_message.txt)
+          
+          curl -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"chat_id\": \"${TELEGRAM_CHAT_ID}\",
+              \"text\": $(echo "$MESSAGE" | jq -Rs .),
+              \"parse_mode\": \"Markdown\"
+            }"
