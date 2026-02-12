@@ -68,30 +68,61 @@ jobs:
               
               result += f"📂 *{keyword}*\n\n"
               
-              # TOP 3 제품 추출
-              products = re.findall(r'(\d+)\. (.+?)(?:🚀)?\n\s+💰 가격: ([\d,]+)원\n\s+📂 카테고리: (.+?)\n\s+📊 예상 수수료율: ([\d.]+)% \(추정치\)\n\s+💵 예상 수수료: ([\d,]+)원\n\s+🔗 (https?://[^\s]+)', cat, re.DOTALL)
+              # TOP 3 제품 추출 (우선순위 점수 포함)
+              products = re.findall(
+                  r'(\d+)\. (.+?)\n'
+                  r'(?:\s+🚀 로켓배송\n)?'
+                  r'\s+💰 가격: ([\d,]+)원\n'
+                  r'\s+📂 카테고리: (.+?)\n'
+                  r'\s+📊 예상 수수료율: ([\d.]+)% \(추정치\)\n'
+                  r'\s+💵 예상 수수료: ([\d,]+)원\n'
+                  r'\s+⭐ 우선순위 점수: ([\d.]+)\n'
+                  r'\s+🔗 (https?://[^\s]+)',
+                  cat, re.DOTALL
+              )
+              
+              # 로켓배송 체크 (별도로 확인)
+              rocket_products = re.findall(r'(\d+)\. .+?\n\s+🚀 로켓배송', cat)
+              rocket_set = set(rocket_products)
               
               for i, prod in enumerate(products[:3], 1):
-                  rank, name, price, category, rate, commission, url = prod
+                  rank, name, price, category, rate, commission, priority, url = prod
+                  
                   # 제품명 길이 제한
                   name_short = name[:40] + '...' if len(name) > 40 else name
-                  result += f"*{i}. {name_short}*\n"
+                  
+                  # 로켓배송 표시
+                  rocket_icon = "🚀 " if rank in rocket_set else ""
+                  
+                  result += f"*{i}. {rocket_icon}{name_short}*\n"
                   result += f"💰 {price}원 | 📊 {rate}% | 💵 {commission}원\n"
+                  result += f"⭐ 우선순위: {priority}점\n"
                   result += f"🔗 `{url}`\n\n"
               
               if not products:
                   result += "   ⚠️ 제품 없음\n\n"
           
-          # 전체 요약
-          total_match = re.search(r'총 (\d+)개 예상 고수수료', content)
-          best_rate_match = re.search(r'예상 수수료율: ([\d.]+)%', content)
-          best_commission_match = re.search(r'예상 수수료: ([\d,]+)원', content)
+          # 전체 요약 추출
+          summary_match = re.search(
+              r'총 (\d+)개 예상 고수수료.+?'
+              r'예상 수수료율: ([\d.]+)%\n.+?'
+              r'예상 수수료: ([\d,]+)원\n.+?'
+              r'로켓배송: ([OX])\n.+?'
+              r'우선순위 점수: ([\d.]+)',
+              content, re.DOTALL
+          )
+          
+          # 로켓배송 비율 추출
+          rocket_ratio_match = re.search(r'로켓배송 비율: ([\d.]+)%', content)
           
           result += "━━━━━━━━━━━━━━━━\n"
-          if total_match:
-              result += f"✅ 총 {total_match.group(1)}개 제품 발견\n"
-          if best_rate_match and best_commission_match:
-              result += f"🥇 최고: {best_rate_match.group(1)}% ({best_commission_match.group(1)}원)"
+          if summary_match:
+              total, best_rate, best_commission, is_rocket, priority = summary_match.groups()
+              result += f"✅ 총 {total}개 제품 발견\n"
+              result += f"🥇 최고: {best_rate}% ({best_commission}원)\n"
+              result += f"⭐ 우선순위: {priority}점 | 🚀 {is_rocket}\n"
+              if rocket_ratio_match:
+                  result += f"🚀 로켓배송 비율: {rocket_ratio_match.group(1)}%"
           
           print(result)
           PYTHON_SCRIPT
