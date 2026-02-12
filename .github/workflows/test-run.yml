@@ -3,19 +3,18 @@ name: 쿠팡 파트너스 자동화
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 0 * * *'  # 매일 오전 9시 KST
 
 jobs:
   test-dummy:
-    name: 1단계 - 더미 데이터 테스트
+    name: 1단계 - 기본 테스트
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - name: 더미 테스트
-        run: python test_coupang_logic.py
+      - run: python test_coupang_logic.py
 
   coupang-api:
     name: 2단계 - 쿠팡 API 실행
@@ -34,53 +33,31 @@ jobs:
         env:
           COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
           COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
-        run: |
-          echo "🚀 쿠팡 API 호출 시작..."
-          python coupang_smart_finder.py 2>&1 | tee result.txt
-          echo ""
-          echo "✅ 실행 완료! result.txt에 저장됨"
+        run: python coupang_smart_finder.py | tee result.txt
       
-      - name: result.txt 내용 확인
-        if: always()
-        run: |
-          echo "========================================"
-          echo "📋 result.txt 전체 내용:"
-          echo "========================================"
-          cat result.txt || echo "❌ result.txt 파일이 없습니다"
-      
-      - name: 결과 정리 및 텔레그램 전송
+      - name: 텔레그램 전송
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          cat << 'PYTHON_SCRIPT' > parse_result.py
-          import re
-          import sys
+          cat << 'SCRIPT' > parse.py
+          import re, sys
           from datetime import datetime
           
-          try:
-              with open('result.txt', 'r', encoding='utf-8') as f:
-                  content = f.read()
-          except:
-              print("파일 읽기 실패")
-              sys.exit(1)
+          with open('result.txt', 'r', encoding='utf-8') as f:
+              content = f.read()
           
-          # 현재 시간
           now = datetime.now().strftime('%Y-%m-%d %H:%M KST')
-          
-          # 카테고리별로 분리
           categories = re.split(r'={70}\n📌 키워드: ', content)
           
           result = f"🎯 *쿠팡 파트너스 고수수료 제품*\n📅 {now}\n\n"
           
-          for cat in categories[1:]:  # 첫 번째는 헤더라 건너뜀
+          for cat in categories[1:]:
               lines = cat.split('\n')
               keyword = lines[0].strip()
-              
               result += f"📂 *{keyword}*\n\n"
               
-              # TOP 3 제품 추출 (우선순위 점수 포함)
               products = re.findall(
                   r'(\d+)\. (.+?)\n'
                   r'(?:\s+🚀 로켓배송\n)?'
@@ -93,29 +70,22 @@ jobs:
                   cat, re.DOTALL
               )
               
-              # 로켓배송 체크 (별도로 확인)
-              rocket_products = re.findall(r'(\d+)\. .+?\n\s+🚀 로켓배송', cat)
-              rocket_set = set(rocket_products)
+              rocket_set = set(re.findall(r'(\d+)\. .+?\n\s+🚀 로켓배송', cat))
               
               for i, prod in enumerate(products[:3], 1):
-                  rank, name, price, category, rate, commission, priority, url = prod
-                  
-                  # 제품명 길이 제한
+                  rank, name, price, category, rate, commission, score, url = prod
                   name_short = name[:40] + '...' if len(name) > 40 else name
+                  rocket = "🚀 " if rank in rocket_set else ""
                   
-                  # 로켓배송 표시
-                  rocket_icon = "🚀 " if rank in rocket_set else ""
-                  
-                  result += f"*{i}. {rocket_icon}{name_short}*\n"
+                  result += f"*{i}. {rocket}{name_short}*\n"
                   result += f"💰 {price}원 | 📊 {rate}% | 💵 {commission}원\n"
-                  result += f"⭐ 우선순위: {priority}점\n"
+                  result += f"⭐ {score}점\n"
                   result += f"🔗 `{url}`\n\n"
               
               if not products:
                   result += "   ⚠️ 제품 없음\n\n"
           
-          # 전체 요약 추출
-          summary_match = re.search(
+          summary = re.search(
               r'총 (\d+)개 예상 고수수료.+?'
               r'예상 수수료율: ([\d.]+)%\n.+?'
               r'예상 수수료: ([\d,]+)원\n.+?'
@@ -124,33 +94,23 @@ jobs:
               content, re.DOTALL
           )
           
-          # 로켓배송 비율 추출
-          rocket_ratio_match = re.search(r'로켓배송 비율: ([\d.]+)%', content)
+          rocket_ratio = re.search(r'로켓배송 비율: ([\d.]+)%', content)
           
           result += "━━━━━━━━━━━━━━━━\n"
-          if summary_match:
-              total, best_rate, best_commission, is_rocket, priority = summary_match.groups()
+          if summary:
+              total, rate, commission, rocket, score = summary.groups()
               result += f"✅ 총 {total}개 제품 발견\n"
-              result += f"🥇 최고: {best_rate}% ({best_commission}원)\n"
-              result += f"⭐ 우선순위: {priority}점 | 🚀 {is_rocket}\n"
-              if rocket_ratio_match:
-                  result += f"🚀 로켓배송 비율: {rocket_ratio_match.group(1)}%"
+              result += f"🥇 최고: {rate}% ({commission}원)\n"
+              result += f"⭐ {score}점 | 🚀 {rocket}\n"
+              if rocket_ratio:
+                  result += f"🚀 로켓배송: {rocket_ratio.group(1)}%"
           
           print(result)
-          PYTHON_SCRIPT
+          SCRIPT
           
-          python3 parse_result.py > telegram_message.txt
-          
-          # 텔레그램 전송
-          MESSAGE=$(cat telegram_message.txt)
+          python3 parse.py > message.txt
+          MESSAGE=$(cat message.txt)
           
           curl -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"chat_id\": \"${TELEGRAM_CHAT_ID}\",
-              \"text\": $(echo "$MESSAGE" | jq -Rs .),
-              \"parse_mode\": \"Markdown\"
-            }"
-          
-          echo ""
-          echo "✅ 텔레그램 전송 완료!"
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":$(echo \"$MESSAGE\"|jq -Rs .),\"parse_mode\":\"Markdown\"}"
