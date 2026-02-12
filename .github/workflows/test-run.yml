@@ -32,8 +32,9 @@ jobs:
       - name: requests 설치
         run: pip install requests
       
-      - name: 쿠팡 고수수료 제품 찾기
+      - name: 쿠팡 예상 고수수료 제품 찾기
         env:
           COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
           COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
-        run: python coupang_finder.py
+        run: python coupang_smart_finder.py
+
