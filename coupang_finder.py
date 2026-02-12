@@ -34,7 +34,7 @@ def make_authorization(method: str, path: str, query: str):
     ).hexdigest()
     return f"CEA algorithm=HmacSHA256, access-key={ACCESS_KEY}, signed-date={dt}, signature={signature}"
 
-def search_products(keyword: str, limit: int = 50):
+def search_products(keyword: str, limit: int = 10): # 50 -> 10 으로 변경
     """키워드로 쿠팡 제품 검색"""
     print(f"🔍 '{keyword}' 검색 중...")
     
@@ -154,7 +154,7 @@ def main():
         print('='*70)
         
         # API 호출
-        result = search_products(kw, limit=50)
+        result = search_products(kw, limit=10)  # 50 → 10으로 변경
         
         if not result:
             print("❌ API 호출 실패 또는 결과 없음")
