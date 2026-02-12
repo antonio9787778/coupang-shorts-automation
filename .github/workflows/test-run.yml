@@ -34,7 +34,19 @@ jobs:
         env:
           COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
           COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
-        run: python coupang_smart_finder.py > result.txt 2>&1
+        run: |
+          echo "🚀 쿠팡 API 호출 시작..."
+          python coupang_smart_finder.py 2>&1 | tee result.txt
+          echo ""
+          echo "✅ 실행 완료! result.txt에 저장됨"
+      
+      - name: result.txt 내용 확인
+        if: always()
+        run: |
+          echo "========================================"
+          echo "📋 result.txt 전체 내용:"
+          echo "========================================"
+          cat result.txt || echo "❌ result.txt 파일이 없습니다"
       
       - name: 결과 정리 및 텔레그램 전송
         if: always()
@@ -139,3 +151,6 @@ jobs:
               \"text\": $(echo "$MESSAGE" | jq -Rs .),
               \"parse_mode\": \"Markdown\"
             }"
+          
+          echo ""
+          echo "✅ 텔레그램 전송 완료!"
