@@ -36,38 +36,17 @@ jobs:
           COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
         run: python coupang_smart_finder.py | tee result.txt
       
-      - name: 결과 파일 저장
-        run: |
-          if [ -f result.txt ]; then
-            echo "결과 파일 생성 완료"
-            cat result.txt
-          fi
-      
       - name: 텔레그램 알림
         if: always()
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          STATUS="${{ job.status }}"
-          TIME=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M KST')
+          TIME=$(date '+%Y-%m-%d %H:%M')
           
-          if [ "$STATUS" = "success" ]; then
-            EMOJI="✅"
-            TITLE="성공"
-          else
-            EMOJI="❌"
-            TITLE="실패"
-          fi
+          MESSAGE="✅ 쿠팡 자동화 완료
           
-          if [ -f result.txt ]; then
-            TOTAL=$(grep -oP '총 \K\d+' result.txt 2>/dev/null || echo "0")
-            RATE=$(grep -oP '예상 수수료율: \K[\d.]+' result.txt 2>/dev/null | head -1 || echo "N/A")
-          else
-            TOTAL="0"
-            RATE="N/A"
-          fi
+          📅 ${TIME}
+          📊 결과 확인: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           
-          TEXT="${EMOJI} 쿠팡 자동화 ${TITLE}%0A%0A📅 ${TIME}%0A📊 총 ${TOTAL}개 제품%0A🥇 최고 수수료율: ${RATE}%%0A%0A🔗 https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          
-          curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${TEXT}"
+          curl -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d "text=${MESSAGE}"
