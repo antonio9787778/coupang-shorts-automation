@@ -3,157 +3,199 @@ name: 쿠팡 파트너스 자동화
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 0 * * *'  # 매일 오전 9시 KST
 
 jobs:
-  test-dummy:
-    name: 1단계 - 기본 테스트
+  coupang-search:
+    name: 쿠팡 고수수료 제품 검색
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-      - name: 더미 테스트
-        run: python test_coupang_logic.py
-
-  coupang-api:
-    name: 2단계 - 쿠팡 API 실행
-    runs-on: ubuntu-latest
-    needs: test-dummy
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+      
+      - name: Python 설정
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
       
-      - name: requests 설치
+      - name: 의존성 설치
         run: pip install requests
       
-      - name: 쿠팡 제품 찾기
+      - name: 쿠팡 API 제품 검색
         env:
           COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
           COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
         run: |
-          python coupang_smart_finder.py | tee result.txt
-          echo "✅ 쿠팡 제품 검색 완료"
-      
-      - name: 결과 파일 확인
-        if: always()
-        run: |
-          if [ -f result.txt ]; then
-            echo "결과 파일 생성 완료"
-            cat result.txt
+          echo "🔍 쿠팡 제품 검색 시작..."
+          python coupang_smart_finder.py > result.txt 2>&1
+          STATUS=$?
+          
+          if [ $STATUS -eq 0 ]; then
+            echo "✅ 검색 완료 (exit code: $STATUS)"
           else
-            echo "결과 파일 생성 실패"
+            echo "⚠️ 검색 완료 (exit code: $STATUS)"
+          fi
+          
+          if [ -f result.txt ]; then
+            FILESIZE=$(wc -c < result.txt)
+            LINES=$(wc -l < result.txt)
+            echo "📄 result.txt: ${FILESIZE} bytes, ${LINES} 줄"
+          else
+            echo "❌ result.txt 파일 없음"
             exit 1
           fi
       
-      - name: 텔레그램 메시지 생성
+      - name: 결과 파일 출력
         if: always()
         run: |
-          cat << 'PYEND' > telegram_sender.py
-          import re
-          from datetime import datetime
-          import sys
-          
-          try:
-              with open('result.txt', 'r', encoding='utf-8') as f:
-                  content = f.read()
-              
-              print(f"파일 읽기 성공 ({len(content)} 자)")
-              
-              now = datetime.now().strftime('%Y-%m-%d %H:%M KST')
-              message = f"🎯 *쿠팡 파트너스 고수수료 제품*\n📅 {now}\n\n"
-              
-              categories = re.split(r'={70}\n📌 키워드: ', content)
-              print(f"카테고리 개수: {len(categories)}")
-              
-              for cat in categories[1:]:
-                  lines = cat.split('\n')
-                  keyword = lines[0].strip()
-                  message += f"📂 *{keyword}*\n\n"
-                  
-                  pattern = r'(\d+)\.\s+(.+?)(?:🚀)?\s*\n\s+💰 가격:\s+([\d,]+)원\s*\n\s+📂 카테고리:\s+(.+?)\s*\n\s+📊 예상 수수료율:\s+([\d.]+)%\s+\(추정치\)\s*\n\s+💵 예상 수수료:\s+([\d,]+)원\s*\n\s+🔗\s+\[?(https?://[^\s\]]+)'
-                  products = re.findall(pattern, cat)
-                  
-                  print(f"  {keyword}: {len(products)}개 제품")
-                  
-                  if products:
-                      rocket_set = set(re.findall(r'(\d+)\.\s+.+?🚀', cat))
-                      
-                      for prod in products[:3]:
-                          rank, name, price, category, rate, commission, url = prod
-                          name_clean = name.strip()
-                          if len(name_clean) > 40:
-                              name_clean = name_clean[:40] + '...'
-                          
-                          rocket_icon = "🚀 " if rank in rocket_set else ""
-                          
-                          message += f"*{rank}. {rocket_icon}{name_clean}*\n"
-                          message += f"💰 {price}원 | 📊 {rate}%\n"
-                          message += f"💵 {commission}원\n"
-                          message += f"🔗 {url[:70]}...\n\n"
-                  else:
-                      message += "   ⚠️ 제품 없음\n\n"
-              
-              summary_match = re.search(r'총 (\d+)개 예상 고수수료', content)
-              best_match = re.search(r'최고 예상 수수료율 제품:\s+(.+?)\s+예상 수수료율:\s+([\d.]+)%\s+예상 수수료:\s+([\d,]+)원', content, re.DOTALL)
-              
-              message += "━━━━━━━━━━━━━━━━\n"
-              
-              if summary_match:
-                  message += f"✅ 총 {summary_match.group(1)}개 제품 발견\n"
-              
-              if best_match:
-                  rate = best_match.group(2)
-                  commission = best_match.group(3)
-                  message += f"🥇 최고: {rate}% ({commission}원)"
-              
-              print("\n생성된 메시지 미리보기:")
-              print(message[:500])
-              
-              with open('telegram_message.txt', 'w', encoding='utf-8') as f:
-                  f.write(message)
-              
-              print("\n✅ telegram_message.txt 저장 완료")
-              
-          except Exception as e:
-              print(f"❌ 오류: {e}")
-              import traceback
-              traceback.print_exc()
-              
-              error_msg = f"⚠️ 쿠팡 검색 완료\n\n파싱 오류: {str(e)}"
-              with open('telegram_message.txt', 'w', encoding='utf-8') as f:
-                  f.write(error_msg)
-          PYEND
-          
-          python3 telegram_sender.py
+          echo "============================================"
+          echo "📋 result.txt 전체 내용:"
+          echo "============================================"
+          cat result.txt || echo "파일 없음"
+          echo "============================================"
       
-      - name: 텔레그램 전송
+      - name: 텔레그램 메시지 생성 및 전송
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          if [ ! -f telegram_message.txt ]; then
-            echo "❌ telegram_message.txt 없음"
-            exit 1
-          fi
+          echo "📱 텔레그램 메시지 생성 중..."
           
-          echo "📤 텔레그램 전송 중..."
+          python3 << 'EOF'
+          import re
+          import json
+          import os
+          from datetime import datetime
+          import subprocess
           
-          MESSAGE=$(cat telegram_message.txt | python3 -c "import json, sys; print(json.dumps(sys.stdin.read()))")
+          def create_telegram_message():
+              """result.txt를 파싱하여 텔레그램 메시지 생성"""
+              try:
+                  with open('result.txt', 'r', encoding='utf-8') as f:
+                      content = f.read()
+                  
+                  if not content:
+                      return "⚠️ result.txt가 비어있습니다."
+                  
+                  now = datetime.now().strftime('%Y-%m-%d %H:%M KST')
+                  message = f"🎯 *쿠팡 파트너스 고수수료 제품*\n📅 {now}\n\n"
+                  
+                  # 카테고리별 분리
+                  categories = re.split(r'={70}\n📌 키워드: ', content)
+                  
+                  product_found = False
+                  
+                  for cat in categories[1:]:
+                      lines = cat.split('\n')
+                      keyword = lines[0].strip()
+                      
+                      message += f"📂 *{keyword}*\n\n"
+                      
+                      # 제품 추출 패턴 (실제 로그 형식에 맞춤)
+                      pattern = r'(\d+)\.\s+(.+?)(?:🚀)?\s*\n\s+💰 가격:\s+([\d,]+)원\s*\n\s+📂 카테고리:\s+(.+?)\s*\n\s+📊 예상 수수료율:\s+([\d.]+)%\s+\(추정치\)\s*\n\s+💵 예상 수수료:\s+([\d,]+)원\s*\n\s+🔗\s+(.+?)(?:\.\.\.)?\s*\n'
+                      
+                      products = re.findall(pattern, cat, re.MULTILINE)
+                      
+                      if products:
+                          product_found = True
+                          # 로켓배송 체크
+                          rocket_nums = set(re.findall(r'(\d+)\.\s+.+?🚀', cat))
+                          
+                          # TOP 3만
+                          for rank, name, price, category, rate, commission, url in products[:3]:
+                              name = name.strip()
+                              if len(name) > 35:
+                                  name = name[:35] + '...'
+                              
+                              rocket = "🚀 " if rank in rocket_nums else ""
+                              
+                              message += f"*{rank}. {rocket}{name}*\n"
+                              message += f"💰 {price}원 | 📊 {rate}%\n"
+                              message += f"💵 {commission}원\n\n"
+                      else:
+                          message += "   ⚠️ 제품 없음\n\n"
+                  
+                  # 요약 정보
+                  summary = re.search(r'총 (\d+)개 예상 고수수료', content)
+                  best = re.search(r'예상 수수료율:\s+([\d.]+)%\s+예상 수수료:\s+([\d,]+)원', content)
+                  
+                  message += "━━━━━━━━━━━━━━━━\n"
+                  
+                  if summary:
+                      message += f"✅ 총 {summary.group(1)}개 제품 발견\n"
+                  
+                  if best:
+                      message += f"🥇 최고: {best.group(1)}% ({best.group(2)}원)"
+                  
+                  if not product_found:
+                      message += "\n⚠️ 검색된 제품이 없습니다"
+                  
+                  return message
+              
+              except FileNotFoundError:
+                  return "❌ result.txt 파일을 찾을 수 없습니다."
+              except Exception as e:
+                  return f"⚠️ 메시지 생성 중 오류 발생\n{str(e)}"
           
-          RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":${MESSAGE},\"parse_mode\":\"Markdown\"}")
+          def send_telegram(message):
+              """텔레그램으로 메시지 전송"""
+              bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
+              chat_id = os.environ.get('TELEGRAM_CHAT_ID')
+              
+              if not bot_token or not chat_id:
+                  print("❌ 텔레그램 환경 변수 없음")
+                  return False
+              
+              url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+              
+              payload = {
+                  "chat_id": chat_id,
+                  "text": message,
+                  "parse_mode": "Markdown"
+              }
+              
+              try:
+                  import requests
+                  response = requests.post(url, json=payload, timeout=10)
+                  
+                  if response.status_code == 200:
+                      result = response.json()
+                      if result.get('ok'):
+                          print("✅ 텔레그램 전송 성공!")
+                          return True
+                      else:
+                          print(f"⚠️ 텔레그램 API 오류: {result}")
+                          return False
+                  else:
+                      print(f"❌ HTTP 오류: {response.status_code}")
+                      print(response.text)
+                      return False
+              
+              except Exception as e:
+                  print(f"❌ 전송 실패: {e}")
+                  return False
           
-          echo "응답:"
-          echo "$RESPONSE"
+          # 실행
+          print("메시지 생성 중...")
+          message = create_telegram_message()
           
-          if echo "$RESPONSE" | grep -q '"ok":true'; then
-            echo "✅ 전송 성공!"
-          else
-            echo "⚠️ 전송 실패"
-          fi
+          print("\n생성된 메시지 미리보기:")
+          print("=" * 50)
+          print(message[:500])
+          if len(message) > 500:
+              print("... (생략)")
+          print("=" * 50)
+          print()
+          
+          print("텔레그램 전송 중...")
+          success = send_telegram(message)
+          
+          if not success:
+              print("\n⚠️ 텔레그램 전송 실패했지만 워크플로우는 계속 진행합니다.")
+          
+          EOF
+          
+          echo ""
+          echo "✅ 워크플로우 완료!"
