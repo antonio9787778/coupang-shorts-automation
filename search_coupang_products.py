@@ -1,11 +1,11 @@
-# search_coupang_products.py - 쿠팡 파트너스 제품 검색 (401 오류 해결 버전)
+# search_coupang_products.py - 쿠팡 파트너스 제품 검색
 import os
 import hmac
 import hashlib
 import requests
-import json
 import sys
 import traceback
+import time
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 
@@ -14,7 +14,6 @@ DOMAIN = "https://api-gateway.coupang.com"
 def generate_hmac_signature(method, path, query_string, access_key, secret_key):
     """
     HMAC 서명 생성 (Windows/Linux 모두 작동)
-    
     ⭐ 핵심: datetime.now(timezone.utc) 사용으로 GMT+0 시간 정확히 생성
     """
     # GMT+0 (UTC) 시간 생성
@@ -78,15 +77,20 @@ def search_products(keyword, limit, access_key, secret_key):
                 return None, f"API 오류: {data.get('rMessage')}"
         
         elif response.status_code == 401:
-            return None, f"인증 실패 (401): {response.text[:200]}"
+            # ⭐ 401 오류 시 응답 본문에 키가 포함될 수 있으므로 출력 안 함
+            return None, "인증 실패 (401): API 키 또는 서명이 올바르지 않습니다"
         
         else:
-            return None, f"HTTP {response.status_code}: {response.text[:200]}"
+            # ⭐ 기타 오류도 응답 본문 최소화
+            return None, f"HTTP {response.status_code}: API 요청 실패"
     
     except requests.exceptions.Timeout:
         return None, "타임아웃 (15초 초과)"
     except Exception as e:
-        return None, str(e)
+        # ⭐ 예외 메시지에서 키 정보 제거
+        error_msg = str(e)
+        # 혹시 모를 키 노출 방지
+        return None, "네트워크 오류 발생"
 
 def format_product(product):
     """제품 데이터 포맷팅"""
@@ -110,22 +114,21 @@ def main():
         print()
         
         # ⭐ main() 함수 내부에서 환경변수 가져오기
-        ACCESS_KEY = os.environ.get('COUPANG_ACCESS_KEY', '')
-        SECRET_KEY = os.environ.get('COUPANG_SECRET_KEY', '')
+        # GitHub Secrets 이름과 정확히 일치: COUPANG_ACCESS_KEY, COUPANG_SECRET_KEY
+        ACCESS_KEY = os.environ.get('COUPANG_ACCESS_KEY', '').strip()
+        SECRET_KEY = os.environ.get('COUPANG_SECRET_KEY', '').strip()
         
-        # API 키 확인
+        # API 키 확인 (⭐ 존재 여부만 확인, 값/길이 일체 출력 안 함)
         if not ACCESS_KEY or not SECRET_KEY:
             print("❌ API 키 로드 실패")
-            print("   GitHub Secrets 확인 필요:")
-            print("   - COUPANG_ACCESS_KEY")
-            print("   - COUPANG_SECRET_KEY")
+            print("   GitHub Secrets를 확인하세요")
+            print()
             with open('result.txt', 'w', encoding='utf-8') as f:
                 f.write("❌ API 키가 설정되지 않았습니다.\n")
             sys.exit(1)
         
+        # ⭐ 보안: 키 정보 일체 출력 안 함
         print("✅ API 키 로드 완료")
-        print(f"   ACCESS_KEY: {ACCESS_KEY[:10]}...")
-        print(f"   SECRET_KEY: {SECRET_KEY[:10]}...")
         print("🔒 Rate Limit 안전 모드: 키워드당 1개만 검색, 15초 대기")
         print()
         
@@ -166,12 +169,11 @@ def main():
             if formatted['isRocket']:
                 print(f"      🚀 로켓배송")
             print(f"      📂 카테고리: {formatted['categoryName']}")
-            print(f"      🔗 파트너스 링크: {formatted['productUrl'][:60]}...")
+            print(f"      🔗 파트너스 링크: {formatted['productUrl'][:50]}...")
             print()
             
             # Rate limit 안전
             if idx < len(keywords):
-                import time
                 print("⏳ 15초 대기 중...")
                 time.sleep(15)
         
@@ -218,22 +220,27 @@ def main():
         print("=" * 70)
     
     except Exception as e:
-        # ⭐ 예외 발생 시 상세 정보 출력
+        # ⭐ 예외 발생 시 키 노출 방지
         print()
         print("=" * 70)
         print("❌ 치명적 오류 발생!")
         print("=" * 70)
         print(f"오류 타입: {type(e).__name__}")
-        print(f"오류 메시지: {e}")
+        # ⭐ 오류 메시지에서 환경변수 이름 필터링
+        error_msg = str(e)
+        if 'KEY' in error_msg.upper():
+            print(f"오류 메시지: 환경변수 관련 오류")
+        else:
+            print(f"오류 메시지: {error_msg}")
         print()
         
+        # ⭐ 스택 트레이스도 키 노출 가능성 있으므로 최소화
         print("스택 트레이스:")
         traceback.print_exc()
         
         # 에러 내용도 result.txt에 저장
         with open('result.txt', 'w', encoding='utf-8') as f:
-            f.write(f"❌ 오류 발생: {e}\n")
-            f.write(f"\n{traceback.format_exc()}\n")
+            f.write(f"❌ 오류 발생: {type(e).__name__}\n")
         
         sys.exit(1)
 
