@@ -65,6 +65,10 @@ def parse_result_txt(result_file='result.txt'):
             url_match = re.search(r'🔗 파트너스 링크:\s+(.+?)\.\.\.', section)
             url = url_match.group(1).strip() if url_match else ''
             
+            # ⭐ 이미지 URL 추출
+            image_match = re.search(r'🖼️ 이미지:\s+(.+)', section)
+            image_url = image_match.group(1).strip() if image_match else ''
+            
             rocket = '🚀' in section
             
             product = {
@@ -76,7 +80,7 @@ def parse_result_txt(result_file='result.txt'):
                 'commission': commission,
                 'rocket': rocket,
                 'url': url,
-                'image_url': '',
+                'image_url': image_url,  # ⭐ 파싱한 값 사용
                 'review_count': 0,
                 'rating': 4.5
             }
