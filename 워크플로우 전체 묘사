@@ -1,0 +1,13 @@
+.
+├── .github/
+│   └── workflows/
+│       ├── coupang-search.yml       # (기존) 검색만
+│       ├── create-shorts.yml        # (기존) 쇼츠만
+│       └── full-pipeline.yml        # (신규) 전체 통합 ⭐
+│
+├── coupang_smart_finder.py          # 쿠팡 검색
+├── create_coupang_shorts.py         # 쇼츠 생성
+├── pipeline_manager.py              # (신규) 파이프라인 관리 ⭐
+├── coupang_dummy_data.py            # 더미 데이터 (임시)
+│
+└── README.md
