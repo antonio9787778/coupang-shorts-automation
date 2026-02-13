@@ -22,12 +22,12 @@ jobs:
       - name: 의존성 설치
         run: pip install requests
       
-      - name: 쿠팡 API 제품 검색
+      - name: 쿠팡 API 제품 검색 (Deeplink 포함)
         env:
           COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
           COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
         run: |
-          echo "🔍 쿠팡 제품 검색 시작..."
+          echo "🔍 쿠팡 제품 검색 + Deeplink 변환 시작..."
           python coupang_smart_finder.py > result.txt 2>&1
           cat result.txt
       
@@ -69,15 +69,26 @@ jobs:
       
       - name: result.txt 확인
         run: |
-          echo "📋 result.txt 내용:"
-          cat result.txt
+          echo "📋 result.txt 내용 확인:"
+          if [ -f result.txt ]; then
+            cat result.txt
+          else
+            echo "❌ result.txt 파일이 없습니다."
+            exit 1
+          fi
       
       - name: 쇼츠 생성
         run: |
           echo "🎬 쇼츠 생성 시작..."
           python pipeline_manager.py
       
+      - name: 생성 결과 확인
+        run: |
+          echo "📊 생성된 파일:"
+          ls -lh *.mp4 *.json *.txt 2>/dev/null || echo "파일 없음"
+      
       - name: 생성된 쇼츠 업로드
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coupang-shorts-${{ github.run_number }}
@@ -86,14 +97,7 @@ jobs:
             products.json
             summary.txt
           retention-days: 30
-      
-      - name: 결과 확인
-        run: |
-          echo "📊 생성된 파일:"
-          ls -lh shorts_*.mp4 || echo "쇼츠 파일 없음"
-          echo ""
-          echo "📄 요약:"
-          cat summary.txt || echo "요약 파일 없음"
+          if-no-files-found: warn
   
   # Job 3: 텔레그램 알림
   notify:
@@ -128,6 +132,7 @@ jobs:
           ${SUMMARY}
           
           📥 다운로드: GitHub Actions → Artifacts
+          🔗 파트너스 링크 포함됨!
           EOF
           )
           
