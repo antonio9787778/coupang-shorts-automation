@@ -22,18 +22,6 @@ jobs:
       - name: 의존성 설치
         run: pip install requests
       
-      - name: 파일 존재 확인
-        run: |
-          echo "📂 현재 디렉토리 파일 목록:"
-          ls -la
-          echo ""
-          if [ -f search_coupang_products.py ]; then
-            echo "✅ search_coupang_products.py 존재"
-          else
-            echo "❌ search_coupang_products.py 없음!"
-            exit 1
-          fi
-      
       - name: 🔍 쿠팡 API 제품 검색
         env:
           COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
@@ -42,10 +30,8 @@ jobs:
           echo "🔍 쿠팡 제품 검색 시작..."
           echo ""
           
-          # ⭐ API 키 관련 정보는 일체 출력 안 함 (보안)
-          
-          # Python 스크립트 실행
-          python -u search_coupang_products.py 2>&1 | tee result.txt
+          # ⭐ coupang_smart_finder.py 실행
+          python -u coupang_smart_finder.py 2>&1 | tee result.txt
           
           EXIT_CODE=${PIPESTATUS[0]}
           echo ""
