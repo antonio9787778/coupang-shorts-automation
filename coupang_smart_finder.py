@@ -22,11 +22,10 @@ CATEGORY_RATES = {
 
 # ==================== 초기 검증 ====================
 print("=" * 70)
-print("🎯 쿠팡 파트너스: 예상 고수수료 제품 찾기")
+print("🎯 쿠팡 파트너스: TOP 1 고수수료 제품 찾기")
 print("=" * 70)
 print()
 
-# 🔒 보안: API 키 존재 여부만 확인 (값 노출 금지)
 if not ACCESS_KEY:
     print("❌ 오류: COUPANG_ACCESS_KEY 환경 변수가 없습니다!")
     exit(1)
@@ -36,13 +35,12 @@ if not SECRET_KEY:
     exit(1)
 
 print("✅ API 키 로드 완료")
+print("🔒 Rate Limit 안전 모드: 키워드당 1개만 검색, 15초 대기")
 print()
 
 # ==================== HMAC 서명 생성 ====================
 def generate_hmac_signature(method, url, secret_key, access_key):
-    """
-    쿠팡 공식 HMAC 서명 생성
-    """
+    """쿠팡 공식 HMAC 서명 생성"""
     path = url.replace(DOMAIN, "")
     
     datetime_utc = datetime.utcnow()
@@ -63,13 +61,11 @@ def generate_hmac_signature(method, url, secret_key, access_key):
     return authorization
 
 # ==================== 제품 검색 (재시도 로직 포함) ====================
-def search_products(keyword, limit=10, max_retries=3):
+def search_products(keyword, limit=1, max_retries=3):
     """
-    쿠팡 제품 검색 API 호출 (안전 장치 포함)
+    쿠팡 제품 검색 API 호출
+    limit=1: TOP 1만 검색 (Rate Limit 안전)
     """
-    if limit > 10:
-        limit = 10
-    
     encoded_keyword = quote(keyword)
     request_url = "{}/v2/providers/affiliate_open_api/apis/openapi/products/search?keyword={}&limit={}".format(
         DOMAIN, encoded_keyword, limit
@@ -86,24 +82,19 @@ def search_products(keyword, limit=10, max_retries=3):
             
             response = requests.get(request_url, headers=headers, timeout=15)
             
-            # 성공
             if response.status_code == 200:
                 return response.json()
             
-            # Rate limit (429)
             elif response.status_code == 429:
-                wait_time = (2 ** attempt) + 1
+                wait_time = 30  # Rate limit 시 30초 대기
                 print("   ⚠️ Rate limit 발생! {}초 대기 후 재시도...".format(wait_time))
                 time.sleep(wait_time)
                 continue
             
-            # 인증 오류 (401)
             elif response.status_code == 401:
                 print("   ❌ 인증 실패 (401): API 키를 확인하세요")
-                # 🔒 보안: 응답 내용 노출하지 않음
                 return None
             
-            # 기타 오류
             else:
                 print("   ❌ API 오류 (상태 코드: {})".format(response.status_code))
                 return None
@@ -111,14 +102,14 @@ def search_products(keyword, limit=10, max_retries=3):
         except requests.exceptions.Timeout:
             print("   ⚠️ 타임아웃 (시도 {}/{})".format(attempt + 1, max_retries))
             if attempt < max_retries - 1:
-                time.sleep(2)
+                time.sleep(5)
                 continue
             return None
         
         except requests.exceptions.ConnectionError:
             print("   ⚠️ 연결 오류 (시도 {}/{})".format(attempt + 1, max_retries))
             if attempt < max_retries - 1:
-                time.sleep(2)
+                time.sleep(5)
                 continue
             return None
         
@@ -131,9 +122,7 @@ def search_products(keyword, limit=10, max_retries=3):
 
 # ==================== 수수료율 계산 ====================
 def get_commission_rate(category, price, is_rocket):
-    """
-    카테고리, 가격, 배송 타입 기반 수수료율 예측
-    """
+    """카테고리, 가격, 배송 타입 기반 수수료율 예측"""
     rate = 4.0
     
     for key, val in CATEGORY_RATES.items():
@@ -153,99 +142,116 @@ def get_commission_rate(category, price, is_rocket):
 
 # ==================== 메인 실행 ====================
 def main():
+    # 검색 키워드 (필요시 더 추가 가능)
     keywords = ['여성의류', '화장품세트', '건강식품']
     
-    print("🔍 검색 키워드: {}\n".format(', '.join(keywords)))
+    print("🔍 검색 키워드: {} (각 키워드당 TOP 1)\n".format(', '.join(keywords)))
     
-    all_high_commission = []
+    all_results = []
     
     for idx, keyword in enumerate(keywords):
         print("=" * 70)
-        print("📌 키워드: {}".format(keyword))
+        print("📌 키워드: {} ({}/{})".format(keyword, idx + 1, len(keywords)))
         print("=" * 70)
-        print("🔍 '{}' 검색 중...".format(keyword))
+        print("🔍 '{}' TOP 1 검색 중...".format(keyword))
         
-        data = search_products(keyword, limit=10)
+        # API 호출 (limit=1)
+        data = search_products(keyword, limit=1)
         
         if not data:
             print("⚠️ 검색 실패\n")
+            
             if idx < len(keywords) - 1:
-                time.sleep(1)
+                wait_time = 15
+                print("⏳ Rate Limit 안전을 위해 {}초 대기...\n".format(wait_time))
+                time.sleep(wait_time)
             continue
         
         if data.get('rCode') != '0':
             print("⚠️ API 응답 오류: {}".format(data.get('rMessage', 'Unknown')))
             print()
+            
             if idx < len(keywords) - 1:
-                time.sleep(1)
+                time.sleep(15)
             continue
         
         products = data.get('data', {}).get('productData', [])
         
-        print("✅ API 호출 성공 (상태: 200)")
-        print("📊 총 {}개 제품 발견".format(len(products)))
-        
         if not products:
             print("⚠️ 제품 없음\n")
+            
             if idx < len(keywords) - 1:
-                time.sleep(1)
+                time.sleep(15)
             continue
         
-        analyzed = []
-        for product in products:
-            price = product.get('productPrice', 0)
-            category = product.get('categoryName', '')
-            is_rocket = product.get('isRocket', False)
-            
-            rate = get_commission_rate(category, price, is_rocket)
-            
-            if rate >= 4.0:
-                commission = int(price * rate / 100)
-                analyzed.append({
-                    'name': product.get('productName', 'N/A'),
-                    'price': price,
-                    'category': category,
-                    'rate': rate,
-                    'commission': commission,
-                    'rocket': is_rocket,
-                    'url': product.get('productUrl', 'N/A')
-                })
+        print("✅ API 호출 성공 (상태: 200)")
+        print("📊 TOP 1 제품 발견\n")
         
-        print("📊 예상 수수료율 4.0% 이상: {}개\n".format(len(analyzed)))
+        # TOP 1 제품 분석
+        product = products[0]
+        price = product.get('productPrice', 0)
+        category = product.get('categoryName', '')
+        is_rocket = product.get('isRocket', False)
         
-        if analyzed:
-            analyzed.sort(key=lambda x: x['commission'], reverse=True)
-            
-            print("🏆 예상 고수수료 제품 TOP 5:\n")
-            
-            for rank, item in enumerate(analyzed[:5], 1):
-                rocket_icon = "🚀" if item['rocket'] else ""
-                print("{}. {}{}".format(rank, item['name'], rocket_icon))
-                print("   💰 가격: {:,}원".format(item['price']))
-                print("   📂 카테고리: {}".format(item['category']))
-                print("   📊 예상 수수료율: {}% (추정치)".format(item['rate']))
-                print("   💵 예상 수수료: {:,}원".format(item['commission']))
-                # 🔒 보안: URL도 축약 (lptag 파라미터에 키 정보 포함될 수 있음)
-                print("   🔗 [쿠팡 링크]\n")
-            
-            all_high_commission.extend(analyzed)
+        rate = get_commission_rate(category, price, is_rocket)
+        commission = int(price * rate / 100)
         
+        print("🏆 예상 고수수료 제품 TOP 1:\n")
+        
+        rocket_icon = "🚀" if is_rocket else ""
+        name = product.get('productName', 'N/A')
+        
+        print("1. {}{}".format(name, rocket_icon))
+        print("   💰 가격: {:,}원".format(price))
+        print("   📂 카테고리: {}".format(category))
+        print("   📊 예상 수수료율: {}% (추정치)".format(rate))
+        print("   💵 예상 수수료: {:,}원".format(commission))
+        print("   🔗 [쿠팡 링크]\n")
+        
+        all_results.append({
+            'keyword': keyword,
+            'name': name,
+            'price': price,
+            'category': category,
+            'rate': rate,
+            'commission': commission,
+            'rocket': is_rocket
+        })
+        
+        # 다음 키워드 전 대기 (Rate Limit 안전)
         if idx < len(keywords) - 1:
-            print("⏳ 다음 검색까지 1초 대기...\n")
-            time.sleep(1)
+            wait_time = 15
+            print("⏳ Rate Limit 안전을 위해 {}초 대기...\n".format(wait_time))
+            
+            # 카운트다운
+            for remaining in range(wait_time, 0, -5):
+                print("   {}초 남음...".format(remaining))
+                time.sleep(5)
+            print()
     
     # ==================== 전체 요약 ====================
     print("=" * 70)
     
-    if all_high_commission:
-        all_high_commission.sort(key=lambda x: x['commission'], reverse=True)
-        best = all_high_commission[0]
+    if all_results:
+        all_results.sort(key=lambda x: x['commission'], reverse=True)
+        best = all_results[0]
         
-        print("✅ 완료! 총 {}개 예상 고수수료 제품 발견".format(len(all_high_commission)))
+        print("✅ 완료! 총 {}개 예상 고수수료 제품 발견 (각 카테고리 TOP 1)".format(len(all_results)))
         print("=" * 70)
         print()
+        
+        print("📋 카테고리별 결과:\n")
+        for item in all_results:
+            rocket_icon = "🚀" if item['rocket'] else ""
+            print("▪️ {}: {}{}".format(item['keyword'], item['name'][:40], rocket_icon))
+            print("   💰 {:,}원 | 📊 {}% | 💵 {:,}원\n".format(
+                item['price'], item['rate'], item['commission']
+            ))
+        
+        print("=" * 70)
         print("🥇 최고 예상 수수료율 제품:")
-        print("   {}".format(best['name']))
+        print("   카테고리: {}".format(best['keyword']))
+        print("   제품: {}".format(best['name']))
         print("   예상 수수료율: {}%".format(best['rate']))
         print("   예상 수수료: {:,}원".format(best['commission']))
         print()
