@@ -164,6 +164,7 @@ def main():
                     f.write(f"   💵 예상 수수료: {int(product['productPrice'] * 0.05):,}원\n")
                     if product['isRocket']:
                         f.write(f"   🚀 로켓배송\n")
+                    f.write(f"   🖼️ 이미지: {product['productImage']}\n")  # ⭐ 추가    
                     f.write(f"   🔗 파트너스 링크: {product['productUrl']}...\n")
                     f.write("\n")
             else:
