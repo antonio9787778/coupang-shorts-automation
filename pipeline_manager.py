@@ -16,8 +16,9 @@ def parse_result_txt(result_file='result.txt'):
         print(f"❌ {result_file} 파일이 없습니다.")
         return []
     
-    with open(result_file, 'r', encoding='utf-8', errors='replace') as f:
-        content = f.read()
+    with open(result_file, 'rb') as f:
+       raw_content = f.read()
+    content = raw_content.decode('utf-8', errors='replace')
     
     # 검색 실패 확인
     if '❌ 인증 실패' in content or '⚠️ 예상 고수수료 제품을 찾지 못했습니다' in content or '❌ API 키' in content:
