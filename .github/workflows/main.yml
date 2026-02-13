@@ -40,13 +40,11 @@ jobs:
           COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
         run: |
           echo "🔍 쿠팡 제품 검색 시작..."
-          echo "ACCESS_KEY 존재: ${{ secrets.COUPANG_ACCESS_KEY != '' }}"
-          echo "SECRET_KEY 존재: ${{ secrets.COUPANG_SECRET_KEY != '' }}"
-          echo "ACCESS_KEY 길이: ${#COUPANG_ACCESS_KEY}"
-          echo "SECRET_KEY 길이: ${#COUPANG_SECRET_KEY}"
           echo ""
           
-          # ⭐ 화면 출력 + 파일 저장 동시 진행
+          # ⭐ API 키 관련 정보는 일체 출력 안 함 (보안)
+          
+          # Python 스크립트 실행
           python -u search_coupang_products.py 2>&1 | tee result.txt
           
           EXIT_CODE=${PIPESTATUS[0]}
