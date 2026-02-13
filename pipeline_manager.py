@@ -16,7 +16,7 @@ def parse_result_txt(result_file='result.txt'):
         print(f"❌ {result_file} 파일이 없습니다.")
         return []
     
-    with open(result_file, 'r', encoding='utf-8') as f:
+    with open(result_file, 'r', encoding='utf-8', errors='replace') as f:
         content = f.read()
     
     # 검색 실패 확인
