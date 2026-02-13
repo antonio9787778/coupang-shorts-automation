@@ -12,25 +12,18 @@ from urllib.parse import urlencode
 DOMAIN = "https://api-gateway.coupang.com"
 
 def generate_hmac_signature(method, path, query_string, access_key, secret_key):
-    """
-    HMAC 서명 생성 (Windows/Linux 모두 작동)
-    ⭐ 핵심: datetime.now(timezone.utc) 사용으로 GMT+0 시간 정확히 생성
-    """
-    # GMT+0 (UTC) 시간 생성
+    """HMAC 서명 생성"""
     now_utc = datetime.now(timezone.utc)
     datetime_str = now_utc.strftime('%y%m%d') + 'T' + now_utc.strftime('%H%M%S') + 'Z'
     
-    # 서명 메시지: datetime + method + path + query
     message = datetime_str + method + path + query_string
     
-    # HMAC-SHA256 생성
     signature = hmac.new(
         secret_key.encode('utf-8'),
         message.encode('utf-8'),
         hashlib.sha256
     ).hexdigest()
     
-    # Authorization 헤더
     authorization = (
         f"CEA algorithm=HmacSHA256, "
         f"access-key={access_key}, "
@@ -45,20 +38,16 @@ def search_products(keyword, limit, access_key, secret_key):
     if not access_key or not secret_key:
         return None, "API 키가 없습니다"
     
-    # 파트너스 API 엔드포인트
     path = "/v2/providers/affiliate_open_api/apis/openapi/products/search"
     
-    # 쿼리 파라미터
     params = {
         'keyword': keyword,
         'limit': limit
     }
     query_string = urlencode(params)
     
-    # ⭐ 매 요청마다 새로 생성
     authorization = generate_hmac_signature("GET", path, query_string, access_key, secret_key)
     
-    # API 요청
     url = f"{DOMAIN}{path}?{query_string}"
     headers = {
         "Authorization": authorization,
@@ -70,26 +59,31 @@ def search_products(keyword, limit, access_key, secret_key):
         
         if response.status_code == 200:
             data = response.json()
-            # 성공 시 data 구조: {"rCode": "0", "rMessage": "OK", "data": [...]}
+            
             if data.get('rCode') == '0':
-                return data.get('data', []), None
+                response_data = data.get('data', {})
+                
+                # ⭐ 핵심 수정: data가 딕셔너리면 productData 추출
+                if isinstance(response_data, dict):
+                    products = response_data.get('productData', [])
+                elif isinstance(response_data, list):
+                    products = response_data
+                else:
+                    products = []
+                
+                return products if products else [], None
             else:
                 return None, f"API 오류: {data.get('rMessage')}"
         
         elif response.status_code == 401:
-            # ⭐ 401 오류 시 응답 본문에 키가 포함될 수 있으므로 출력 안 함
-            return None, "인증 실패 (401): API 키 또는 서명이 올바르지 않습니다"
+            return None, "인증 실패 (401): API 키 또는 서명 오류"
         
         else:
-            # ⭐ 기타 오류도 응답 본문 최소화
             return None, f"HTTP {response.status_code}: API 요청 실패"
     
     except requests.exceptions.Timeout:
         return None, "타임아웃 (15초 초과)"
     except Exception as e:
-        # ⭐ 예외 메시지에서 키 정보 제거
-        error_msg = str(e)
-        # 혹시 모를 키 노출 방지
         return None, "네트워크 오류 발생"
 
 def format_product(product):
@@ -113,21 +107,16 @@ def main():
         print("=" * 70)
         print()
         
-        # ⭐ main() 함수 내부에서 환경변수 가져오기
-        # GitHub Secrets 이름과 정확히 일치: COUPANG_ACCESS_KEY, COUPANG_SECRET_KEY
         ACCESS_KEY = os.environ.get('COUPANG_ACCESS_KEY', '').strip()
         SECRET_KEY = os.environ.get('COUPANG_SECRET_KEY', '').strip()
         
-        # API 키 확인 (⭐ 존재 여부만 확인, 값/길이 일체 출력 안 함)
         if not ACCESS_KEY or not SECRET_KEY:
             print("❌ API 키 로드 실패")
             print("   GitHub Secrets를 확인하세요")
-            print()
             with open('result.txt', 'w', encoding='utf-8') as f:
                 f.write("❌ API 키가 설정되지 않았습니다.\n")
             sys.exit(1)
         
-        # ⭐ 보안: 키 정보 일체 출력 안 함
         print("✅ API 키 로드 완료")
         print("🔒 Rate Limit 안전 모드: 키워드당 1개만 검색, 15초 대기")
         print()
@@ -145,7 +134,6 @@ def main():
             print()
             print(f"🔍 '{keyword}' TOP 1 검색 중...")
             
-            # ⭐ 함수 호출 시 키 전달
             products, error = search_products(keyword, limit=1, access_key=ACCESS_KEY, secret_key=SECRET_KEY)
             
             if error:
@@ -153,12 +141,12 @@ def main():
                 print()
                 continue
             
-            if not products:
+            # ⭐ 핵심 수정: 리스트 체크 + 길이 체크
+            if not isinstance(products, list) or len(products) == 0:
                 print("   ⚠️ 제품 없음")
                 print()
                 continue
             
-            # 첫 번째 제품만 사용
             product = products[0]
             formatted = format_product(product)
             results.append({'keyword': keyword, 'product': formatted})
@@ -172,7 +160,6 @@ def main():
             print(f"      🔗 파트너스 링크: {formatted['productUrl'][:50]}...")
             print()
             
-            # Rate limit 안전
             if idx < len(keywords):
                 print("⏳ 15초 대기 중...")
                 time.sleep(15)
@@ -220,25 +207,17 @@ def main():
         print("=" * 70)
     
     except Exception as e:
-        # ⭐ 예외 발생 시 키 노출 방지
         print()
         print("=" * 70)
         print("❌ 치명적 오류 발생!")
         print("=" * 70)
         print(f"오류 타입: {type(e).__name__}")
-        # ⭐ 오류 메시지에서 환경변수 이름 필터링
-        error_msg = str(e)
-        if 'KEY' in error_msg.upper():
-            print(f"오류 메시지: 환경변수 관련 오류")
-        else:
-            print(f"오류 메시지: {error_msg}")
+        print(f"오류 메시지: {str(e)[:100]}")
         print()
         
-        # ⭐ 스택 트레이스도 키 노출 가능성 있으므로 최소화
         print("스택 트레이스:")
         traceback.print_exc()
         
-        # 에러 내용도 result.txt에 저장
         with open('result.txt', 'w', encoding='utf-8') as f:
             f.write(f"❌ 오류 발생: {type(e).__name__}\n")
         
