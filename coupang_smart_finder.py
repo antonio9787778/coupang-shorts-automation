@@ -1,3 +1,5 @@
+# coupang_smart_finder.py - 쿠팡 제품 검색 (Deeplink 적용)
+
 import hmac
 import hashlib
 import requests
@@ -5,13 +7,12 @@ import os
 import time
 from datetime import datetime
 from urllib.parse import quote
+from coupang_deeplink import convert_to_deeplink  # ⭐ 추가
 
-# ==================== 설정 ====================
 ACCESS_KEY = os.environ.get('COUPANG_ACCESS_KEY')
 SECRET_KEY = os.environ.get('COUPANG_SECRET_KEY')
 DOMAIN = "https://api-gateway.coupang.com"
 
-# 카테고리별 수수료율
 CATEGORY_RATES = {
     '패션의류': 6.0, '패션잡화': 6.0, '남성패션': 6.0, '여성패션': 6.0,
     '뷰티': 5.0, '화장품': 5.0, '향수': 5.0,
@@ -20,7 +21,6 @@ CATEGORY_RATES = {
     '가전': 3.0, '디지털': 3.0
 }
 
-# ==================== 초기 검증 ====================
 print("=" * 70)
 print("🎯 쿠팡 파트너스: TOP 1 고수수료 제품 찾기")
 print("=" * 70)
@@ -38,7 +38,6 @@ print("✅ API 키 로드 완료")
 print("🔒 Rate Limit 안전 모드: 키워드당 1개만 검색, 15초 대기")
 print()
 
-# ==================== HMAC 서명 생성 ====================
 def generate_hmac_signature(method, url, secret_key, access_key):
     """쿠팡 공식 HMAC 서명 생성"""
     path = url.replace(DOMAIN, "")
@@ -60,12 +59,8 @@ def generate_hmac_signature(method, url, secret_key, access_key):
     
     return authorization
 
-# ==================== 제품 검색 (재시도 로직 포함) ====================
 def search_products(keyword, limit=1, max_retries=3):
-    """
-    쿠팡 제품 검색 API 호출
-    limit=1: TOP 1만 검색 (Rate Limit 안전)
-    """
+    """쿠팡 제품 검색 API 호출"""
     encoded_keyword = quote(keyword)
     request_url = "{}/v2/providers/affiliate_open_api/apis/openapi/products/search?keyword={}&limit={}".format(
         DOMAIN, encoded_keyword, limit
@@ -86,7 +81,7 @@ def search_products(keyword, limit=1, max_retries=3):
                 return response.json()
             
             elif response.status_code == 429:
-                wait_time = 30  # Rate limit 시 30초 대기
+                wait_time = 30
                 print("   ⚠️ Rate limit 발생! {}초 대기 후 재시도...".format(wait_time))
                 time.sleep(wait_time)
                 continue
@@ -120,7 +115,6 @@ def search_products(keyword, limit=1, max_retries=3):
     print("   ❌ {}회 재시도 후 실패".format(max_retries))
     return None
 
-# ==================== 수수료율 계산 ====================
 def get_commission_rate(category, price, is_rocket):
     """카테고리, 가격, 배송 타입 기반 수수료율 예측"""
     rate = 4.0
@@ -140,9 +134,7 @@ def get_commission_rate(category, price, is_rocket):
     
     return round(rate, 1)
 
-# ==================== 메인 실행 ====================
 def main():
-    # 검색 키워드 (필요시 더 추가 가능)
     keywords = ['여성의류', '화장품세트', '건강식품']
     
     print("🔍 검색 키워드: {} (각 키워드당 TOP 1)\n".format(', '.join(keywords)))
@@ -155,22 +147,17 @@ def main():
         print("=" * 70)
         print("🔍 '{}' TOP 1 검색 중...".format(keyword))
         
-        # API 호출 (limit=1)
         data = search_products(keyword, limit=1)
         
         if not data:
             print("⚠️ 검색 실패\n")
-            
             if idx < len(keywords) - 1:
-                wait_time = 15
-                print("⏳ Rate Limit 안전을 위해 {}초 대기...\n".format(wait_time))
-                time.sleep(wait_time)
+                time.sleep(15)
             continue
         
         if data.get('rCode') != '0':
             print("⚠️ API 응답 오류: {}".format(data.get('rMessage', 'Unknown')))
             print()
-            
             if idx < len(keywords) - 1:
                 time.sleep(15)
             continue
@@ -179,7 +166,6 @@ def main():
         
         if not products:
             print("⚠️ 제품 없음\n")
-            
             if idx < len(keywords) - 1:
                 time.sleep(15)
             continue
@@ -187,11 +173,16 @@ def main():
         print("✅ API 호출 성공 (상태: 200)")
         print("📊 TOP 1 제품 발견\n")
         
-        # TOP 1 제품 분석
         product = products[0]
         price = product.get('productPrice', 0)
         category = product.get('categoryName', '')
         is_rocket = product.get('isRocket', False)
+        product_url = product.get('productUrl', '')
+        product_image = product.get('productImage', '')
+        
+        # ⭐ Deeplink 변환 (중요!)
+        print("  🔗 파트너스 링크 변환 중...")
+        partner_url = convert_to_deeplink(product_url) if product_url else ''
         
         rate = get_commission_rate(category, price, is_rocket)
         commission = int(price * rate / 100)
@@ -206,7 +197,8 @@ def main():
         print("   📂 카테고리: {}".format(category))
         print("   📊 예상 수수료율: {}% (추정치)".format(rate))
         print("   💵 예상 수수료: {:,}원".format(commission))
-        print("   🔗 [쿠팡 링크]\n")
+        print("   🔗 파트너스 링크: {}...".format(partner_url[:50] if partner_url else '[링크 없음]'))
+        print()
         
         all_results.append({
             'keyword': keyword,
@@ -215,21 +207,19 @@ def main():
             'category': category,
             'rate': rate,
             'commission': commission,
-            'rocket': is_rocket
+            'rocket': is_rocket,
+            'url': partner_url,  # ⭐ 파트너스 링크 사용!
+            'image_url': product_image
         })
         
-        # 다음 키워드 전 대기 (Rate Limit 안전)
         if idx < len(keywords) - 1:
             wait_time = 15
             print("⏳ Rate Limit 안전을 위해 {}초 대기...\n".format(wait_time))
-            
-            # 카운트다운
             for remaining in range(wait_time, 0, -5):
                 print("   {}초 남음...".format(remaining))
                 time.sleep(5)
             print()
     
-    # ==================== 전체 요약 ====================
     print("=" * 70)
     
     if all_results:
@@ -244,9 +234,11 @@ def main():
         for item in all_results:
             rocket_icon = "🚀" if item['rocket'] else ""
             print("▪️ {}: {}{}".format(item['keyword'], item['name'][:40], rocket_icon))
-            print("   💰 {:,}원 | 📊 {}% | 💵 {:,}원\n".format(
+            print("   💰 {:,}원 | 📊 {}% | 💵 {:,}원".format(
                 item['price'], item['rate'], item['commission']
             ))
+            print("   🔗 {}...".format(item['url'][:50] if item['url'] else '[링크 없음]'))
+            print()
         
         print("=" * 70)
         print("🥇 최고 예상 수수료율 제품:")
