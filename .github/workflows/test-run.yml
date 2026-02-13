@@ -41,76 +41,148 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          cat << 'SCRIPT' > parse.py
-          import re, sys
-          from datetime import datetime
+          echo "📱 텔레그램 전송 시작..."
           
-          with open('result.txt', 'r', encoding='utf-8') as f:
-              content = f.read()
+          # 1단계: result.txt 존재 확인
+          if [ ! -f result.txt ]; then
+            echo "❌ result.txt 파일이 없습니다"
+            MESSAGE="⚠️ 쿠팡 검색 실행 완료\n하지만 result.txt 생성 실패"
+            curl -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "text=${MESSAGE}"
+            exit 0
+          fi
           
-          now = datetime.now().strftime('%Y-%m-%d %H:%M KST')
-          categories = re.split(r'={70}\n📌 키워드: ', content)
+          echo "✅ result.txt 파일 존재"
+          echo "파일 크기: $(wc -l < result.txt) 줄"
           
-          result = f"🎯 *쿠팡 파트너스 고수수료 제품*\n📅 {now}\n\n"
+          # 2단계: Python 파싱
+          cat << 'PYEND' > parse.py
+import re
+from datetime import datetime
+
+try:
+    with open('result.txt', 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    print("파일 읽기 성공")
+    print(f"내용 길이: {len(content)} 자")
+    
+    now = datetime.now().strftime('%Y-%m-%d %H:%M KST')
+    
+    # 카테고리별 분리
+    categories = re.split(r'={70}\n📌 키워드: ', content)
+    print(f"카테고리 개수: {len(categories)}")
+    
+    result = f"🎯 *쿠팡 파트너스 고수수료 제품*\n📅 {now}\n\n"
+    
+    found_products = False
+    
+    for cat in categories[1:]:
+        lines = cat.split('\n')
+        keyword = lines[0].strip()
+        
+        result += f"📂 *{keyword}*\n\n"
+        
+        # 제품 추출 (간단한 패턴)
+        products = re.findall(
+            r'(\d+)\. (.+?)\n'
+            r'(?:\s+🚀 로켓배송\n)?'
+            r'\s+💰 가격: ([\d,]+)원\n'
+            r'\s+📂 카테고리: (.+?)\n'
+            r'\s+📊 예상 수수료율: ([\d.]+)%'
+            r'.+?'
+            r'\s+💵 예상 수수료: ([\d,]+)원\n'
+            r'\s+⭐ 우선순위 점수: ([\d.]+)\n'
+            r'\s+🔗 (https?://[^\s]+)',
+            cat, re.DOTALL
+        )
+        
+        print(f"{keyword}: {len(products)}개 제품 발견")
+        
+        if products:
+            found_products = True
+            # 로켓배송 체크
+            rocket_set = set(re.findall(r'(\d+)\. .+?\n\s+🚀 로켓배송', cat))
+            
+            for i, prod in enumerate(products[:3], 1):
+                rank, name, price, category, rate, commission, score, url = prod
+                name_short = name[:35] + '...' if len(name) > 35 else name
+                rocket = "🚀 " if rank in rocket_set else ""
+                
+                result += f"*{i}. {rocket}{name_short}*\n"
+                result += f"💰 {price}원 | 📊 {rate}%\n"
+                result += f"💵 {commission}원 | ⭐ {score}점\n"
+                result += f"🔗 {url}\n\n"
+        else:
+            result += "   ⚠️ 제품 없음\n\n"
+    
+    # 요약
+    summary = re.search(r'총 (\d+)개 예상 고수수료', content)
+    best_rate = re.search(r'예상 수수료율: ([\d.]+)%', content)
+    
+    result += "━━━━━━━━━━━━━━━━\n"
+    if summary:
+        result += f"✅ 총 {summary.group(1)}개 제품 발견\n"
+    if best_rate:
+        result += f"🥇 최고 수수료율: {best_rate.group(1)}%"
+    
+    if not found_products:
+        result += "\n⚠️ 검색된 제품이 없습니다"
+    
+    print("파싱 완료!")
+    print(result)
+    
+    with open('message.txt', 'w', encoding='utf-8') as f:
+        f.write(result)
+    
+    print("message.txt 저장 완료")
+
+except Exception as e:
+    print(f"오류 발생: {e}")
+    import traceback
+    traceback.print_exc()
+    
+    # 오류 시 기본 메시지
+    with open('message.txt', 'w', encoding='utf-8') as f:
+        f.write(f"⚠️ 쿠팡 검색 실행 완료\n파싱 중 오류 발생: {str(e)}")
+PYEND
           
-          for cat in categories[1:]:
-              lines = cat.split('\n')
-              keyword = lines[0].strip()
-              result += f"📂 *{keyword}*\n\n"
-              
-              products = re.findall(
-                  r'(\d+)\. (.+?)\n'
-                  r'(?:\s+🚀 로켓배송\n)?'
-                  r'\s+💰 가격: ([\d,]+)원\n'
-                  r'\s+📂 카테고리: (.+?)\n'
-                  r'\s+📊 예상 수수료율: ([\d.]+)% \(추정치\)\n'
-                  r'\s+💵 예상 수수료: ([\d,]+)원\n'
-                  r'\s+⭐ 우선순위 점수: ([\d.]+)\n'
-                  r'\s+🔗 (https?://[^\s]+)',
-                  cat, re.DOTALL
-              )
-              
-              rocket_set = set(re.findall(r'(\d+)\. .+?\n\s+🚀 로켓배송', cat))
-              
-              for i, prod in enumerate(products[:3], 1):
-                  rank, name, price, category, rate, commission, score, url = prod
-                  name_short = name[:40] + '...' if len(name) > 40 else name
-                  rocket = "🚀 " if rank in rocket_set else ""
-                  
-                  result += f"*{i}. {rocket}{name_short}*\n"
-                  result += f"💰 {price}원 | 📊 {rate}% | 💵 {commission}원\n"
-                  result += f"⭐ {score}점\n"
-                  result += f"🔗 `{url}`\n\n"
-              
-              if not products:
-                  result += "   ⚠️ 제품 없음\n\n"
+          # 3단계: 파싱 실행
+          python3 parse.py
           
-          summary = re.search(
-              r'총 (\d+)개 예상 고수수료.+?'
-              r'예상 수수료율: ([\d.]+)%\n.+?'
-              r'예상 수수료: ([\d,]+)원\n.+?'
-              r'로켓배송: ([OX])\n.+?'
-              r'우선순위 점수: ([\d.]+)',
-              content, re.DOTALL
-          )
+          # 4단계: 메시지 파일 확인
+          if [ ! -f message.txt ]; then
+            echo "❌ message.txt 생성 실패"
+            MESSAGE="⚠️ 쿠팡 검색 완료, 메시지 생성 실패"
+            curl -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "text=${MESSAGE}"
+            exit 0
+          fi
           
-          rocket_ratio = re.search(r'로켓배송 비율: ([\d.]+)%', content)
+          echo "✅ message.txt 생성 성공"
+          echo "내용:"
+          cat message.txt
+          echo ""
           
-          result += "━━━━━━━━━━━━━━━━\n"
-          if summary:
-              total, rate, commission, rocket, score = summary.groups()
-              result += f"✅ 총 {total}개 제품 발견\n"
-              result += f"🥇 최고: {rate}% ({commission}원)\n"
-              result += f"⭐ {score}점 | 🚀 {rocket}\n"
-              if rocket_ratio:
-                  result += f"🚀 로켓배송: {rocket_ratio.group(1)}%"
-          
-          print(result)
-          SCRIPT
-          
-          python3 parse.py > message.txt
+          # 5단계: 텔레그램 전송
           MESSAGE=$(cat message.txt)
           
-          curl -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+          # 특수문자 이스케이프
+          MESSAGE_ESCAPED=$(echo "$MESSAGE" | jq -Rs .)
+          
+          # API 호출
+          RESPONSE=$(curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":$(echo \"$MESSAGE\"|jq -Rs .),\"parse_mode\":\"Markdown\"}"
+            -d "{\"chat_id\":\"${TELEGRAM_CHAT_ID}\",\"text\":${MESSAGE_ESCAPED},\"parse_mode\":\"Markdown\"}")
+          
+          echo "텔레그램 API 응답:"
+          echo "$RESPONSE"
+          
+          # 성공 확인
+          if echo "$RESPONSE" | grep -q '"ok":true'; then
+            echo "✅ 텔레그램 전송 성공!"
+          else
+            echo "⚠️ 텔레그램 전송 실패 (하지만 워크플로우는 계속)"
+          fi
