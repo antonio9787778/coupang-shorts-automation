@@ -22,7 +22,19 @@ jobs:
       - name: 의존성 설치
         run: pip install requests
       
-      - name: 🔍 쿠팡 API 제품 검색 (수정된 버전)
+      - name: 파일 존재 확인
+        run: |
+          echo "📂 현재 디렉토리 파일 목록:"
+          ls -la
+          echo ""
+          if [ -f search_coupang_products.py ]; then
+            echo "✅ search_coupang_products.py 존재"
+          else
+            echo "❌ search_coupang_products.py 없음!"
+            exit 1
+          fi
+      
+      - name: 🔍 쿠팡 API 제품 검색
         env:
           COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
           COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
@@ -30,12 +42,30 @@ jobs:
           echo "🔍 쿠팡 제품 검색 시작..."
           echo "ACCESS_KEY 존재: ${{ secrets.COUPANG_ACCESS_KEY != '' }}"
           echo "SECRET_KEY 존재: ${{ secrets.COUPANG_SECRET_KEY != '' }}"
-          python search_coupang_products.py > result.txt 2>&1
+          echo "ACCESS_KEY 길이: ${#COUPANG_ACCESS_KEY}"
+          echo "SECRET_KEY 길이: ${#COUPANG_SECRET_KEY}"
           echo ""
-          echo "📋 검색 결과:"
-          cat result.txt
+          
+          # ⭐ 화면 출력 + 파일 저장 동시 진행
+          python -u search_coupang_products.py 2>&1 | tee result.txt
+          
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo ""
+          echo "Python 종료 코드: $EXIT_CODE"
+          
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "❌ Python 스크립트 실패 (exit code: $EXIT_CODE)"
+            echo ""
+            echo "📋 result.txt 내용:"
+            cat result.txt
+            exit $EXIT_CODE
+          fi
+          
+          echo ""
+          echo "✅ 검색 완료"
       
       - name: result.txt 업로드
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: search-result
