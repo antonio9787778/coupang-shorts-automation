@@ -110,26 +110,12 @@ jobs:
           fi
       
       - name: 쇼츠 생성
+        env:
+          COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
+          COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
         run: |
           echo "🎬 쇼츠 생성 시작..."
           python pipeline_manager.py
-      
-      - name: 생성 결과 확인
-        run: |
-          echo "📊 생성된 파일:"
-          ls -lh *.mp4 *.json *.txt 2>/dev/null || echo "파일 없음"
-      
-      - name: 생성된 쇼츠 업로드
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coupang-shorts-${{ github.run_number }}
-          path: |
-            shorts_*.mp4
-            products.json
-            summary.txt
-          retention-days: 30
-          if-no-files-found: warn
   
   # Job 3: 텔레그램 알림
   notify:
