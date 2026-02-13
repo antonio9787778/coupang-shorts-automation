@@ -1,3 +1,5 @@
+# v2 - encoding fix
+# pipeline_manager.py - 쿠팡 검색 → 쇼츠 생성 통합 (API 키 불필요)
 # pipeline_manager.py - 쿠팡 검색 → 쇼츠 생성 통합 (API 키 불필요)
 import os
 import re
