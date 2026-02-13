@@ -1,0 +1,146 @@
+name: 🚀 쿠팡 → 쇼츠 전체 파이프라인 
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # 매일 오전 9시 KST
+
+jobs:
+  # Job 1: 쿠팡 제품 검색
+  search-products:
+    name: 1️⃣ 쿠팡 제품 검색
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: 의존성 설치
+        run: pip install requests
+      
+      - name: 🔍 쿠팡 API 제품 검색 (수정된 버전)
+        env:
+          COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
+          COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
+        run: |
+          echo "🔍 쿠팡 제품 검색 시작..."
+          echo "ACCESS_KEY 존재: ${{ secrets.COUPANG_ACCESS_KEY != '' }}"
+          echo "SECRET_KEY 존재: ${{ secrets.COUPANG_SECRET_KEY != '' }}"
+          python search_coupang_products.py > result.txt 2>&1
+          echo ""
+          echo "📋 검색 결과:"
+          cat result.txt
+      
+      - name: result.txt 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: search-result
+          path: result.txt
+          retention-days: 1
+  
+  # Job 2: 쇼츠 생성
+  create-shorts:
+    name: 2️⃣ 쇼츠 생성
+    needs: search-products
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: 시스템 패키지 설치
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-nanum fonts-nanum-coding
+      
+      - name: Python 의존성 설치
+        run: |
+          pip install moviepy==1.0.3
+          pip install gtts pillow requests imageio-ffmpeg
+      
+      - name: result.txt 다운로드
+        uses: actions/download-artifact@v4
+        with:
+          name: search-result
+      
+      - name: result.txt 확인
+        run: |
+          echo "📋 result.txt 내용 확인:"
+          if [ -f result.txt ]; then
+            cat result.txt
+          else
+            echo "❌ result.txt 파일이 없습니다."
+            exit 1
+          fi
+      
+      - name: 쇼츠 생성
+        run: |
+          echo "🎬 쇼츠 생성 시작..."
+          python pipeline_manager.py
+      
+      - name: 생성 결과 확인
+        run: |
+          echo "📊 생성된 파일:"
+          ls -lh *.mp4 *.json *.txt 2>/dev/null || echo "파일 없음"
+      
+      - name: 생성된 쇼츠 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coupang-shorts-${{ github.run_number }}
+          path: |
+            shorts_*.mp4
+            products.json
+            summary.txt
+          retention-days: 30
+          if-no-files-found: warn
+  
+  # Job 3: 텔레그램 알림
+  notify:
+    name: 3️⃣ 텔레그램 알림
+    needs: create-shorts
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: 결과 다운로드
+        uses: actions/download-artifact@v4
+        with:
+          name: coupang-shorts-${{ github.run_number }}
+        continue-on-error: true
+      
+      - name: 텔레그램 알림 전송
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -f summary.txt ]; then
+            SUMMARY=$(cat summary.txt)
+            STATUS="✅ 쇼츠 생성 완료!"
+          else
+            SUMMARY="쇼츠 생성 실패"
+            STATUS="❌ 오류 발생"
+          fi
+          
+          MESSAGE=$(cat <<EOF
+          🚀 쿠팡 쇼츠 자동 생성 완료
+          
+          ${STATUS}
+          ${SUMMARY}
+          
+          📥 다운로드: GitHub Actions → Artifacts
+          🔗 파트너스 링크 포함됨!
+          EOF
+          )
+          
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${MESSAGE}"
