@@ -28,9 +28,6 @@ jobs:
           COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
         run: |
           echo "🔍 쿠팡 제품 검색 시작..."
-          echo ""
-          
-          # ⭐ coupang_smart_finder.py 실행
           python -u coupang_smart_finder.py 2>&1 | tee result.txt
           
           EXIT_CODE=${PIPESTATUS[0]}
@@ -38,14 +35,11 @@ jobs:
           echo "Python 종료 코드: $EXIT_CODE"
           
           if [ $EXIT_CODE -ne 0 ]; then
-            echo "❌ Python 스크립트 실패 (exit code: $EXIT_CODE)"
-            echo ""
-            echo "📋 result.txt 내용:"
+            echo "❌ Python 스크립트 실패"
             cat result.txt
             exit $EXIT_CODE
           fi
           
-          echo ""
           echo "✅ 검색 완료"
       
       - name: result.txt 업로드
@@ -96,12 +90,26 @@ jobs:
           fi
       
       - name: 쇼츠 생성
-        env:
-          COUPANG_ACCESS_KEY: ${{ secrets.COUPANG_ACCESS_KEY }}
-          COUPANG_SECRET_KEY: ${{ secrets.COUPANG_SECRET_KEY }}
         run: |
           echo "🎬 쇼츠 생성 시작..."
           python pipeline_manager.py
+      
+      - name: 생성 결과 확인
+        run: |
+          echo "📊 생성된 파일:"
+          ls -lh *.mp4 *.json *.txt 2>/dev/null || echo "파일 없음"
+      
+      - name: 생성된 쇼츠 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coupang-shorts-${{ github.run_number }}
+          path: |
+            shorts_*.mp4
+            products.json
+            summary.txt
+          retention-days: 30
+          if-no-files-found: warn
   
   # Job 3: 텔레그램 알림
   notify:
